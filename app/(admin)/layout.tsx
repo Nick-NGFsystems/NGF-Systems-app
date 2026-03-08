@@ -1,7 +1,10 @@
-export default function AdminLayout({
-  children
-}: {
-  children: React.ReactNode
+import AdminLayout from '@/components/layout/AdminLayout'
+import { ReactNode } from 'react'
+
+export default function AdminGroupLayout({ 
+  children 
+}: { 
+  children: ReactNode 
 }) {
-  return <>{children}</>
+  return <AdminLayout>{children}</AdminLayout>
 }

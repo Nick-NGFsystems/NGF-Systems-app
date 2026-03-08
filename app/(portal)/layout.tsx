@@ -1,7 +1,10 @@
-export default function PortalLayout({
-  children
-}: {
-  children: React.ReactNode
+import PortalLayout from '@/components/layout/PortalLayout'
+import { ReactNode } from 'react'
+
+export default function PortalGroupLayout({ 
+  children 
+}: { 
+  children: ReactNode 
 }) {
-  return <>{children}</>
+  return <PortalLayout>{children}</PortalLayout>
 }

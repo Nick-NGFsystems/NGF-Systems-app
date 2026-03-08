@@ -30,6 +30,7 @@ When in doubt, refer back to this file before writing any code.
 - **Always use Prisma 5** — stable, widely supported, uses standard schema syntax
 - **Turbopack must always be disabled** — never use `--turbopack` flag or enable it in config
 - **Always run Prisma via local binary** — use `./node_modules/.bin/prisma` never `npx prisma` — npx downloads Prisma 7 globally which breaks migrations
+- **Portal routes must never share a path name with admin routes** — Next.js 15 treats same-named pages across route groups as conflicts. Use unique names: portal dashboard is `/portal/portal-dashboard` not `/portal/dashboard`
 
 ---
 
@@ -54,11 +55,11 @@ When in doubt, refer back to this file before writing any code.
     /time/page.tsx          → Time tracking
   /(portal)                 → Client-only routes. Blocked if Clerk role !== "client"
     /layout.tsx             → Required for route group to work
-    /dashboard/page.tsx     → Client portal home
-    /website/page.tsx       → Their website overview, change requests, analytics
-    /content/page.tsx       → Edit website content fields (if toggled on)
-    /invoices/page.tsx      → View invoices (if toggled on)
-    /request/page.tsx       → Website request form (on by default for new signups)
+    /portal-dashboard/page.tsx → Client portal home (NOT /dashboard — conflicts with admin)
+    /portal-website/page.tsx   → Their website overview, change requests, analytics
+    /portal-content/page.tsx   → Edit website content fields (if toggled on)
+    /portal-invoices/page.tsx  → View invoices (if toggled on)
+    /portal-request/page.tsx   → Website request form (on by default for new signups)
   /unauthorized/page.tsx    → Shown when a user tries to access a route they can't
   /api
     /admin                  → Admin API routes
@@ -429,7 +430,29 @@ return NextResponse.json({ success: false, error: "Descriptive message" }, { sta
 
 ---
 
-## Middleware — Always Use This Pattern
+## Vercel Deployment — Required Settings
+
+Before deploying to Vercel, these settings must be configured in the Vercel project dashboard:
+
+**Framework Preset:** Must be set to **Next.js** — if left as "Other" or blank, Vercel will look for a `/public` output directory and the build will fail.
+
+**Environment Variables:** All variables from `.env.local` must be added to Vercel → Settings → Environment Variables before deploying:
+- `DATABASE_URL`
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+- `CLERK_SECRET_KEY`
+- `NEXT_PUBLIC_CLERK_SIGN_IN_URL`
+- `NEXT_PUBLIC_CLERK_SIGN_UP_URL`
+- `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL`
+- `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL`
+- `STRIPE_SECRET_KEY`
+- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+
+Without these, the production build will fail or Clerk will not authenticate users.
+
+---
+
+
 
 ```typescript
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
@@ -530,6 +553,8 @@ Always work on a feature branch. Never commit directly to main.
 - Do not use `npx prisma` — always use `./node_modules/.bin/prisma`
 - Do not report a file as updated without actually writing the new content to it
 - Do not assume Tailwind is working — always ensure tailwind.config.ts, postcss.config.js, globals.css, and the globals.css import in layout.tsx all exist
+- Do not name portal routes the same as admin routes — always prefix portal routes with `portal-`
+- Do not deploy to Vercel without setting the Framework Preset to Next.js and adding all environment variables
 - Do not use Prisma 6+
 - Do not enable Turbopack under any circumstances
 - Do not add `--turbopack` to any npm script

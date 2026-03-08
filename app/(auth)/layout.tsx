@@ -1,7 +1,13 @@
-export default function AuthLayout({
-  children
-}: {
-  children: React.ReactNode
+import { ReactNode } from 'react'
+
+export default function AuthGroupLayout({ 
+  children 
+}: { 
+  children: ReactNode 
 }) {
-  return <>{children}</>
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      {children}
+    </div>
+  )
 }

@@ -1,4 +1,5 @@
-import React from 'react'
+import PublicNavbar from './PublicNavbar'
+import Footer from './Footer'
 
 interface PublicLayoutProps {
   children: React.ReactNode
@@ -7,9 +8,11 @@ interface PublicLayoutProps {
 export default function PublicLayout({ children }: PublicLayoutProps) {
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="bg-white shadow">{/* Public Navbar */}</header>
-      <main className="flex-1">{children}</main>
-      <footer className="bg-gray-900 text-white">{/* Footer */}</footer>
+      <PublicNavbar />
+      <main className="flex-1">
+        {children}
+      </main>
+      <Footer />
     </div>
   )
 }
