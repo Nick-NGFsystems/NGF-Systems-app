@@ -1,0 +1,173 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id       String   @id @default(cuid())
+  email    String   @unique
+  name     String
+  status   String   @default("LEAD") // LEAD or ACTIVE
+  created  DateTime @default(now())
+  updated  DateTime @updatedAt
+
+  config   ClientConfig?
+  projects Project[]
+
+  @@map("clients")
+}
+
+model ClientConfig {
+  id              String   @id @default(cuid())
+  client_id       String   @unique
+  client          Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  page_request    Boolean  @default(true)
+  page_website    Boolean  @default(false)
+  page_content    Boolean  @default(false)
+  page_invoices   Boolean  @default(false)
+  feature_blog    Boolean  @default(false)
+  feature_products Boolean @default(false)
+  feature_booking Boolean  @default(false)
+  feature_gallery Boolean  @default(false)
+  site_url        String?
+  site_repo       String?
+  created         DateTime @default(now())
+  updated         DateTime @updatedAt
+
+  @@map("client_configs")
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  client_id String
+  client    Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  name      String
+  status    String   @default("PENDING")
+  created   DateTime @default(now())
+  updated   DateTime @updatedAt
+
+  tasks Task[]
+
+  @@map("projects")
+}
+
+model Task {
+  id         String   @id @default(cuid())
+  project_id String
+  project    Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  title      String
+  status     String   @default("TODO")
+  created    DateTime @default(now())
+  updated    DateTime @updatedAt
+
+  @@map("tasks")
+}
+
+model TimeEntry {
+  id         String   @id @default(cuid())
+  client_id  String
+  project_id String?
+  hours      Float
+  notes      String?
+  created    DateTime @default(now())
+  updated    DateTime @updatedAt
+
+  @@map("time_entries")
+}
+
+model Invoice {
+  id        String   @id @default(cuid())
+  client_id String
+  amount    Float
+  status    String   @default("DRAFT")
+  created   DateTime @default(now())
+  updated   DateTime @updatedAt
+
+  @@map("invoices")
+}
+
+model Expense {
+  id      String   @id @default(cuid())
+  amount  Float
+  note    String?
+  created DateTime @default(now())
+  updated DateTime @updatedAt
+
+  @@map("expenses")
+}
+
+model Contract {
+  id        String   @id @default(cuid())
+  client_id String
+  title     String
+  notes     String?
+  created   DateTime @default(now())
+  updated   DateTime @updatedAt
+
+  @@map("contracts")
+}
+
+model SiteContent {
+  id           String   @id @default(cuid())
+  client_id    String
+  field_key    String
+  field_type   String // text, richtext, image, url
+  field_label  String
+  field_value  String?
+  page_section String
+  created      DateTime @default(now())
+  updated      DateTime @updatedAt
+
+  @@unique([client_id, field_key])
+  @@map("site_content")
+}
+
+model ChangeRequest {
+  id           String   @id @default(cuid())
+  client_id    String
+  title        String
+  description  String?
+  page_section String?
+  priority     String   @default("MEDIUM")
+  status       String   @default("PENDING")
+  image_urls   String?
+  admin_comment String?
+  created      DateTime @default(now())
+  updated      DateTime @updatedAt
+
+  @@map("change_requests")
+}
+
+model SiteAnalytics {
+  id          String   @id @default(cuid())
+  client_id   String
+  period_start DateTime
+  period_end  DateTime
+  visitors    Int?
+  page_views  Int?
+  clicks      Int?
+  top_page    String?
+  notes       String?
+  created     DateTime @default(now())
+  updated     DateTime @updatedAt
+
+  @@map("site_analytics")
+}
+
+model ProjectRequest {
+  id          String   @id @default(cuid())
+  client_id   String
+  title       String
+  description String?
+  created     DateTime @default(now())
+  updated     DateTime @updatedAt
+
+  @@map("project_requests")
+}
