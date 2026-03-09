@@ -2,29 +2,33 @@ import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 
 const isPublicRoute = createRouteMatcher([
+  '/',
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/unauthorized(.*)',
 ])
 
-const isAdminRoute = createRouteMatcher(['/admin(.*)'])
-const isPortalRoute = createRouteMatcher(['/portal(.*)'])
-
 export default clerkMiddleware(async (auth, req) => {
+  const path = req.nextUrl.pathname
+  
   if (isPublicRoute(req)) return NextResponse.next()
-
+  
   const { sessionClaims } = await auth()
-  const role = (sessionClaims?.metadata as { role?: string })?.role
+  console.log('PATH:', path)
+  console.log('FULL CLAIMS:', JSON.stringify(sessionClaims))
 
   if (!sessionClaims) {
     return NextResponse.redirect(new URL('/sign-in', req.url))
   }
 
-  if (isAdminRoute(req) && role !== 'admin') {
+  const role = (sessionClaims?.metadata as { role?: string })?.role
+  console.log('ROLE:', role)
+
+  if (path.startsWith('/admin') && role !== 'admin') {
     return NextResponse.redirect(new URL('/unauthorized', req.url))
   }
 
-  if (isPortalRoute(req) && role !== 'client') {
+  if (path.startsWith('/portal') && role !== 'client') {
     return NextResponse.redirect(new URL('/unauthorized', req.url))
   }
 
@@ -32,5 +36,5 @@ export default clerkMiddleware(async (auth, req) => {
 })
 
 export const config = {
-  matcher: ['/((?!_next|static|favicon.ico).*)']
+  matcher: ['/((?!_next|static|favicon\\.ico|api/webhooks|_clerk).*)']
 }

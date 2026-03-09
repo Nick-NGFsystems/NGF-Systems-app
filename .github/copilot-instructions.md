@@ -23,7 +23,8 @@ When in doubt, refer back to this file before writing any code.
 | Version Control | GitHub | — |
 
 ### Critical Version Rules
-- **Never install Next.js 16+** — Turbopack in Next.js 16 has a known bug with route groups that breaks the app
+- **Never install Next.js 16+** — breaks route groups and has incompatibilities with React 18
+- **Always use Next.js 15.3.8 specifically** — earlier 15.x versions have a security vulnerability (CVE-2025-66478), later versions may not exist or be unstable
 - **Never install React 19+** — incompatible with Next.js 15
 - **Never install Prisma 6+** — breaking changes in schema syntax
 - **Always use Next.js 15 with React 18** — this is the stable production combination
@@ -31,6 +32,7 @@ When in doubt, refer back to this file before writing any code.
 - **Turbopack must always be disabled** — never use `--turbopack` flag or enable it in config
 - **Always run Prisma via local binary** — use `./node_modules/.bin/prisma` never `npx prisma` — npx downloads Prisma 7 globally which breaks migrations
 - **Portal routes must never share a path name with admin routes** — Next.js 15 treats same-named pages across route groups as conflicts. Use unique names: portal dashboard is `/portal/portal-dashboard` not `/portal/dashboard`
+- **Pin Clerk to v6** — `@clerk/nextjs@6`. Clerk v7 (released 2025) has breaking changes and a different JWT format that breaks middleware role checking. Never use `@clerk/nextjs@latest` as it will install v7.
 
 ---
 
@@ -458,31 +460,50 @@ Without these, the production build will fail or Clerk will not authenticate use
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 
-const isPublicRoute = createRouteMatcher(['/', '/sign-in(.*)', '/sign-up(.*)', '/unauthorized'])
-const isAdminRoute = createRouteMatcher(['/admin(.*)'])
-const isPortalRoute = createRouteMatcher(['/portal(.*)'])
+const isPublicRoute = createRouteMatcher([
+  '/',
+  '/sign-in(.*)',
+  '/sign-up(.*)',
+  '/unauthorized(.*)',
+])
 
 export default clerkMiddleware(async (auth, req) => {
-  if (isPublicRoute(req)) return
+  if (isPublicRoute(req)) return NextResponse.next()
 
   const { sessionClaims } = await auth()
+
+  if (!sessionClaims) {
+    return NextResponse.redirect(new URL('/sign-in', req.url))
+  }
+
   const role = (sessionClaims?.metadata as { role?: string })?.role
+  const path = req.nextUrl.pathname
 
-  if (isAdminRoute(req) && role !== 'admin') {
+  if (path.startsWith('/admin') && role !== 'admin') {
     return NextResponse.redirect(new URL('/unauthorized', req.url))
   }
 
-  if (isPortalRoute(req) && role !== 'client') {
+  if (path.startsWith('/portal') && role !== 'client') {
     return NextResponse.redirect(new URL('/unauthorized', req.url))
   }
+
+  return NextResponse.next()
 })
 
 export const config = {
-  matcher: ['/((?!_next|static|favicon.ico).*)']
+  matcher: ['/((?!_next|static|favicon\\.ico|api/webhooks|_clerk).*)']
 }
 ```
 
 The middleware file must be named `middleware.ts` and live in the project root.
+
+### Critical Middleware Notes
+- **`/` must be in public routes** — Clerk's internal catchall check makes requests to `/` during sign-in. If root is not public, these create an infinite redirect loop
+- **`/unauthorized(.*)` needs the wildcard** — match all variations
+- **Always `return NextResponse.next()`** — never `return` with no value in Clerk v6 middleware
+- **Use `path.startsWith()` for route checks** — more reliable than `createRouteMatcher` for admin/portal
+- **Exclude `_clerk` and `api/webhooks` from matcher** — lets Clerk internal requests and webhooks pass through
+- **Role is in `sessionClaims.metadata.role`** — requires Clerk session token customization (see Clerk Setup below)
 
 ---
 
@@ -536,6 +557,113 @@ Always work on a feature branch. Never commit directly to main.
 
 ---
 
+---
+
+## Clerk Setup — Required Steps (New Projects)
+
+Clerk requires specific configuration before auth will work. Do these in order:
+
+### 1. Install Clerk v6 (not latest)
+```bash
+npm install @clerk/nextjs@6
+```
+Never use `@clerk/nextjs@latest` — it installs v7 which has breaking changes.
+
+### 2. Customize the Session Token
+By default Clerk v7-format tokens (even from v6 in new apps) do not include `publicMetadata` in the JWT. Without this, `sessionClaims.metadata` will be `{}` and role checks will always fail.
+
+Go to **dashboard.clerk.com** → **Configure** → **Sessions** → **Customize session token** and add:
+```json
+{
+  "metadata": "{{user.public_metadata}}"
+}
+```
+Save. This makes `sessionClaims.metadata.role` available in middleware.
+
+### 3. Set Clerk Paths in .env.local
+```
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/portal/portal-dashboard
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/portal/request
+```
+These must be set via environment variables, not the Clerk dashboard (dashboard path settings are being deprecated).
+
+### 4. Configure next.config.js for Codespaces / Proxied Environments
+When running in GitHub Codespaces or any reverse-proxy environment, Server Actions will fail with "Invalid Server Actions request" unless you whitelist the forwarded host:
+```javascript
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    serverActions: {
+      allowedOrigins: ['localhost:3000', '*.app.github.dev'],
+    },
+  },
+}
+module.exports = nextConfig
+```
+For production Vercel deployment, this block can be removed.
+
+### 5. Set User Roles in Clerk Dashboard
+After a user signs up, their `publicMetadata` is empty `{}` by default. You must set their role manually:
+
+Go to **dashboard.clerk.com** → **Users** → click the user → **Metadata** → **Public** → **Edit** → paste:
+```json
+{ "role": "admin" }
+```
+or
+```json
+{ "role": "client" }
+```
+
+**Important:** The role is baked into the JWT at sign-in time. If you set the role after the user is already signed in, they must sign out and sign back in for the new role to take effect. Clearing browser cookies forces a fresh token.
+
+### 6. Layout Components Must NOT Do Their Own Auth Checks
+The middleware handles all auth and role enforcement. Layout components (`AdminLayout`, `PortalLayout`) must NOT call `currentUser()` or do their own redirects. Doing so causes double-checking that can fail in proxied environments and cause redirect loops.
+
+```typescript
+// ✅ CORRECT — layout just wraps content
+export default function PortalLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-white">
+      <PortalNavbar />
+      <main>{children}</main>
+    </div>
+  )
+}
+
+// ❌ WRONG — never do auth checks in layouts
+export default async function PortalLayout({ children }) {
+  const user = await currentUser()  // ← never do this
+  if (!user) redirect('/sign-in')   // ← never do this
+  ...
+}
+```
+
+---
+
+## tsconfig.json — Required Path Alias Configuration
+
+The `@/` import alias must be configured in `tsconfig.json` or Next.js will not discover route group pages and all routes inside `(admin)`, `(portal)`, `(auth)` will return 404.
+
+**Required fields in `compilerOptions`:**
+```json
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  }
+}
+```
+
+Without `baseUrl` and `paths`, TypeScript cannot resolve `@/components/layout/AdminLayout` imports. This causes a silent compilation failure that prevents Next.js from registering any route group pages — they exist on disk but return 404 at runtime.
+
+---
+
+
+
 ## What To Never Do
 
 - Do not rewrite existing working code when adding something new
@@ -558,6 +686,12 @@ Always work on a feature branch. Never commit directly to main.
 - Do not use Prisma 6+
 - Do not enable Turbopack under any circumstances
 - Do not add `--turbopack` to any npm script
+- Do not install `@clerk/nextjs@latest` — always pin to v6 with `@clerk/nextjs@6`
+- Do not install Next.js 16+ — always use 15.3.8
+- Do not add auth checks (`currentUser()`, redirects) inside layout components — middleware handles all auth
+- Do not forget `baseUrl` and `paths` in `tsconfig.json` — without them, route group pages silently return 404
+- Do not expect a role change to take effect while a user is still signed in — they must sign out and back in
+- Do not forget to customize the Clerk session token to include `{{user.public_metadata}}` — without this, roles never appear in the JWT and all role checks fail
 
 ---
 

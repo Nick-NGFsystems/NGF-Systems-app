@@ -11,8 +11,8 @@
     "prisma:migrate": "./node_modules/.bin/prisma migrate dev"
   },
   "dependencies": {
-    "@clerk/nextjs": "latest",
-    "next": "15",
+    "@clerk/nextjs": "^6.39.0",
+    "next": "^15.3.8",
     "react": "18",
     "react-dom": "18",
     "stripe": "latest"
