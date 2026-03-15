@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { UserButton } from '@clerk/nextjs'
-import { usePathname } from 'next/navigation'
+import NavLink from './NavLink'
 
 interface PortalNavbarLink {
   label: string
@@ -12,7 +12,6 @@ interface PortalNavbarLink {
 
 export default function PortalNavbar() {
   const [isOpen, setIsOpen] = useState(false)
-  const pathname = usePathname()
 
   const links: PortalNavbarLink[] = [
     { label: 'Dashboard', href: '/portal/portal-dashboard' },
@@ -21,8 +20,6 @@ export default function PortalNavbar() {
     { label: 'Invoices', href: '/portal/portal-invoices' },
     { label: 'Request', href: '/portal/portal-request' },
   ]
-
-  const isActive = (href: string) => pathname === href
 
   return (
     <nav className="sticky top-0 z-30 border-b border-gray-100 bg-white/95 shadow-sm backdrop-blur">
@@ -36,17 +33,11 @@ export default function PortalNavbar() {
 
           <div className="hidden items-center gap-1 md:flex">
             {links.map((link) => (
-              <Link
+              <NavLink
                 key={link.href}
                 href={link.href}
-                className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
-                  isActive(link.href)
-                    ? 'bg-blue-50 text-blue-600'
-                    : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-                }`}
-              >
-                {link.label}
-              </Link>
+                label={link.label}
+              />
             ))}
           </div>
 
@@ -88,18 +79,13 @@ export default function PortalNavbar() {
         {isOpen && (
           <div className="border-t border-gray-100 py-3 md:hidden">
             {links.map((link) => (
-              <Link
+              <NavLink
                 key={link.href}
                 href={link.href}
-                onClick={() => setIsOpen(false)}
-                className={`block rounded-lg px-3 py-2 text-base font-medium transition ${
-                  isActive(link.href)
-                    ? 'bg-blue-50 text-blue-600'
-                    : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-                }`}
-              >
-                {link.label}
-              </Link>
+                label={link.label}
+                mobile
+                onNavigate={() => setIsOpen(false)}
+              />
             ))}
           </div>
         )}

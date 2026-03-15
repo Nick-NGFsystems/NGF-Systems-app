@@ -1,4 +1,6 @@
 import AddClientModal from '@/components/admin/AddClientModal'
+import DeleteClientButton from '@/components/admin/DeleteClientButton'
+import ClientStatusSelect from '@/components/admin/ClientStatusSelect'
 import { db } from '@/lib/db'
 import Link from 'next/link'
 
@@ -16,6 +18,7 @@ const clientColumns: ClientColumn[] = [
   { label: 'Email' },
   { label: 'Status' },
   { label: 'Date Created' },
+  { label: 'Actions' },
 ]
 
 const emptyState: EmptyState = {
@@ -45,7 +48,7 @@ export default async function ClientsPage() {
           </div>
         ) : (
           <>
-            <div className="hidden border-b border-gray-100 px-6 py-4 md:grid md:grid-cols-4 md:gap-4">
+            <div className="hidden border-b border-gray-100 px-6 py-4 md:grid md:grid-cols-5 md:gap-4">
               {clientColumns.map((column) => (
                 <p key={column.label} className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                   {column.label}
@@ -55,7 +58,7 @@ export default async function ClientsPage() {
 
             <div className="divide-y divide-gray-100">
               {clients.map((client) => (
-                <div key={client.id} className="grid grid-cols-1 gap-2 px-6 py-4 md:grid-cols-4 md:gap-4">
+                <div key={client.id} className="grid grid-cols-1 gap-2 px-6 py-4 md:grid-cols-5 md:gap-4">
                   <p className="text-sm font-medium">
                     <Link
                       href={`/admin/clients/${client.id}`}
@@ -65,14 +68,11 @@ export default async function ClientsPage() {
                     </Link>
                   </p>
                   <p className="text-sm text-gray-700">{client.email}</p>
-                  <p>
-                    <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-600">
-                      {client.status}
-                    </span>
-                  </p>
+                  <ClientStatusSelect clientId={client.id} currentStatus={client.status} />
                   <p className="text-sm text-gray-600">
                     {new Date(client.created).toLocaleDateString()}
                   </p>
+                  <DeleteClientButton clientId={client.id} clientName={client.name} />
                 </div>
               ))}
             </div>
