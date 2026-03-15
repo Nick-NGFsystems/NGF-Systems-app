@@ -1,25 +1,35 @@
-import { auth } from '@clerk/nextjs/server'
-import { redirect } from 'next/navigation'
+'use client'
 
-export default async function RedirectPage() {
-  const { sessionClaims } = await auth()
+import { useUser } from '@clerk/nextjs'
+import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
 
-  console.log('REDIRECT SESSIONCLAIMS:', JSON.stringify(sessionClaims))
+export default function RedirectPage() {
+  const { user, isLoaded } = useUser()
+  const router = useRouter()
 
-  if (!sessionClaims) {
-    redirect('/sign-in')
-  }
+  useEffect(() => {
+    if (!isLoaded) return
 
-  const role = (sessionClaims?.metadata as { role?: string })?.role
+    if (!user) {
+      router.push('/sign-in')
+      return
+    }
 
-  if (role === 'admin') {
-    redirect('/admin/dashboard')
-  }
+    const role = (user.publicMetadata as { role?: string })?.role
 
-  if (role === 'client') {
-    redirect('/portal/portal-dashboard')
-  }
+    if (role === 'admin') {
+      router.push('/admin/dashboard')
+    } else if (role === 'client') {
+      router.push('/portal/portal-dashboard')
+    } else {
+      router.push('/sign-in')
+    }
+  }, [user, isLoaded, router])
 
-  // Default fallback
-  redirect('/sign-in')
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-white">
+      <p className="text-gray-500 text-sm">Redirecting...</p>
+    </div>
+  )
 }

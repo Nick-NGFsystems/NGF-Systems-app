@@ -1,23 +1,20 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Client {
-  id       String   @id @default(cuid())
-  email    String   @unique
+  id       String        @id @default(cuid())
+  email    String        @unique
   name     String
-  status   String   @default("LEAD") // LEAD or ACTIVE
-  created  DateTime @default(now())
-  updated  DateTime @updatedAt
-
+  status   String        @default("LEAD")
+  created  DateTime      @default(now())
+  updated  DateTime      @updatedAt
   config   ClientConfig?
   projects Project[]
 
@@ -25,21 +22,21 @@ model Client {
 }
 
 model ClientConfig {
-  id              String   @id @default(cuid())
-  client_id       String   @unique
-  client          Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)
-  page_request    Boolean  @default(true)
-  page_website    Boolean  @default(false)
-  page_content    Boolean  @default(false)
-  page_invoices   Boolean  @default(false)
-  feature_blog    Boolean  @default(false)
-  feature_products Boolean @default(false)
-  feature_booking Boolean  @default(false)
-  feature_gallery Boolean  @default(false)
-  site_url        String?
-  site_repo       String?
-  created         DateTime @default(now())
-  updated         DateTime @updatedAt
+  id               String   @id @default(cuid())
+  client_id        String   @unique
+  page_request     Boolean  @default(true)
+  page_website     Boolean  @default(false)
+  page_content     Boolean  @default(false)
+  page_invoices    Boolean  @default(false)
+  feature_blog     Boolean  @default(false)
+  feature_products Boolean  @default(false)
+  feature_booking  Boolean  @default(false)
+  feature_gallery  Boolean  @default(false)
+  site_url         String?
+  site_repo        String?
+  created          DateTime @default(now())
+  updated          DateTime @updatedAt
+  client           Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)
 
   @@map("client_configs")
 }
@@ -47,13 +44,12 @@ model ClientConfig {
 model Project {
   id        String   @id @default(cuid())
   client_id String
-  client    Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)
   name      String
   status    String   @default("PENDING")
   created   DateTime @default(now())
   updated   DateTime @updatedAt
-
-  tasks Task[]
+  client    Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  tasks     Task[]
 
   @@map("projects")
 }
@@ -61,11 +57,11 @@ model Project {
 model Task {
   id         String   @id @default(cuid())
   project_id String
-  project    Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
   title      String
   status     String   @default("TODO")
   created    DateTime @default(now())
   updated    DateTime @updatedAt
+  project    Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
 
   @@map("tasks")
 }
@@ -118,7 +114,7 @@ model SiteContent {
   id           String   @id @default(cuid())
   client_id    String
   field_key    String
-  field_type   String // text, richtext, image, url
+  field_type   String
   field_label  String
   field_value  String?
   page_section String
@@ -130,33 +126,33 @@ model SiteContent {
 }
 
 model ChangeRequest {
-  id           String   @id @default(cuid())
-  client_id    String
-  title        String
-  description  String?
-  page_section String?
-  priority     String   @default("MEDIUM")
-  status       String   @default("PENDING")
-  image_urls   String?
+  id            String   @id @default(cuid())
+  client_id     String
+  title         String
+  description   String?
+  page_section  String?
+  priority      String   @default("MEDIUM")
+  status        String   @default("PENDING")
+  image_urls    String?
   admin_comment String?
-  created      DateTime @default(now())
-  updated      DateTime @updatedAt
+  created       DateTime @default(now())
+  updated       DateTime @updatedAt
 
   @@map("change_requests")
 }
 
 model SiteAnalytics {
-  id          String   @id @default(cuid())
-  client_id   String
+  id           String   @id @default(cuid())
+  client_id    String
   period_start DateTime
-  period_end  DateTime
-  visitors    Int?
-  page_views  Int?
-  clicks      Int?
-  top_page    String?
-  notes       String?
-  created     DateTime @default(now())
-  updated     DateTime @updatedAt
+  period_end   DateTime
+  visitors     Int?
+  page_views   Int?
+  clicks       Int?
+  top_page     String?
+  notes        String?
+  created      DateTime @default(now())
+  updated      DateTime @updatedAt
 
   @@map("site_analytics")
 }
