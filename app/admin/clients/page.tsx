@@ -1,5 +1,6 @@
 import AddClientModal from '@/components/admin/AddClientModal'
 import { db } from '@/lib/db'
+import Link from 'next/link'
 
 interface ClientColumn {
   label: string
@@ -55,7 +56,14 @@ export default async function ClientsPage() {
             <div className="divide-y divide-gray-100">
               {clients.map((client) => (
                 <div key={client.id} className="grid grid-cols-1 gap-2 px-6 py-4 md:grid-cols-4 md:gap-4">
-                  <p className="text-sm font-medium text-gray-900">{client.name}</p>
+                  <p className="text-sm font-medium">
+                    <Link
+                      href={`/admin/clients/${client.id}`}
+                      className="text-gray-900 transition hover:text-blue-600"
+                    >
+                      {client.name}
+                    </Link>
+                  </p>
                   <p className="text-sm text-gray-700">{client.email}</p>
                   <p>
                     <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-600">
