@@ -2,9 +2,9 @@ import { db } from '@/lib/db'
 import { notFound } from 'next/navigation'
 
 interface ClientDetailPageProps {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 interface ToggleItem {
@@ -13,8 +13,10 @@ interface ToggleItem {
 }
 
 export default async function ClientDetailPage({ params }: ClientDetailPageProps) {
+  const resolvedParams = await params
+
   const client = await db.client.findUnique({
-    where: { id: params.id },
+    where: { id: resolvedParams.id },
     include: { config: true },
   })
 

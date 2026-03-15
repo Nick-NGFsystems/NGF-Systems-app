@@ -4,9 +4,9 @@ import { db } from '@/lib/db'
 import { CLIENT_STATUSES } from '@/lib/client-status'
 
 interface RouteContext {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 interface UpdateClientBody {
@@ -28,7 +28,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
-    const clientId = context.params.id
+    const { id: clientId } = await context.params
 
     if (!clientId) {
       return NextResponse.json({ success: false, error: 'Client id is required' }, { status: 400 })
@@ -61,7 +61,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
-    const clientId = context.params.id
+    const { id: clientId } = await context.params
 
     if (!clientId) {
       return NextResponse.json({ success: false, error: 'Client id is required' }, { status: 400 })

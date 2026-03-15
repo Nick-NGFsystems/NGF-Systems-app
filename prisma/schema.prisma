@@ -80,9 +80,14 @@ model TimeEntry {
 
 model Invoice {
   id        String   @id @default(cuid())
-  client_id String
+  client_id String?
+  title     String
   amount    Float
-  status    String   @default("DRAFT")
+  type      String   @default("ONE_TIME")
+  status    String   @default("PENDING")
+  due_date  DateTime?
+  paid_date DateTime?
+  notes     String?
   created   DateTime @default(now())
   updated   DateTime @updatedAt
 
@@ -90,11 +95,16 @@ model Invoice {
 }
 
 model Expense {
-  id      String   @id @default(cuid())
-  amount  Float
-  note    String?
-  created DateTime @default(now())
-  updated DateTime @updatedAt
+  id        String   @id @default(cuid())
+  title     String
+  amount    Float
+  type      String   @default("ONE_TIME")
+  category  String   @default("OTHER")
+  paid_date DateTime?
+  next_due  DateTime?
+  notes     String?
+  created   DateTime @default(now())
+  updated   DateTime @updatedAt
 
   @@map("expenses")
 }
