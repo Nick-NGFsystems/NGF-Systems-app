@@ -7,7 +7,6 @@ const isPublicRoute = createRouteMatcher([
   '/sign-up(.*)',
   '/unauthorized(.*)',
   '/redirect',
-  '/debug(.*)',
 ])
 
 export default clerkMiddleware(async (auth, req) => {
@@ -16,10 +15,6 @@ export default clerkMiddleware(async (auth, req) => {
   if (isPublicRoute(req)) return NextResponse.next()
   
   const { sessionClaims } = await auth()
-  if (path === '/admin/dashboard') {
-    console.log('ADMIN ATTEMPT - FULL CLAIMS:', JSON.stringify(sessionClaims))
-    console.log('ADMIN ATTEMPT - METADATA:', JSON.stringify((sessionClaims as any)?.metadata))
-  }
   console.log('PATH:', path)
   console.log('FULL CLAIMS:', JSON.stringify(sessionClaims))
 
