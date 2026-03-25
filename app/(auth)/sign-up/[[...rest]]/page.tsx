@@ -2,34 +2,43 @@ import { SignUp } from '@clerk/nextjs'
 
 export default function SignUpPage() {
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-      <div className="mx-auto grid min-h-[calc(100vh-3rem)] w-full max-w-6xl grid-cols-1 items-stretch gap-6 sm:min-h-[calc(100vh-4rem)] lg:grid-cols-2">
-        <section className="hidden rounded-2xl bg-slate-900 p-10 shadow-sm lg:flex lg:flex-col lg:justify-between xl:p-12">
-          <p className="font-sans text-3xl font-semibold tracking-tight text-blue-500">NGFsystems</p>
-          <div>
-            <h1 className="max-w-md font-sans text-4xl font-semibold tracking-tight text-white">
-              Client Portal &amp; Business Management
-            </h1>
-            <p className="mt-4 max-w-md text-base text-slate-300">
-              Create your account to submit requests, review invoices, and stay connected.
-            </p>
-          </div>
-        </section>
-
-        <section className="flex items-center justify-center rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-8">
-          <div className="w-full max-w-md">
-            <div className="mb-6 text-center lg:hidden">
-              <p className="font-sans text-2xl font-semibold tracking-tight text-blue-600">NGFsystems</p>
-              <p className="mt-2 text-sm text-gray-500">Client Portal &amp; Business Management</p>
+    <main className="min-h-screen bg-slate-950 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-6xl items-center justify-center sm:min-h-[calc(100vh-4rem)]">
+        <section className="grid w-full overflow-hidden rounded-3xl border border-slate-800 bg-white shadow-2xl lg:grid-cols-2">
+          <div className="order-2 flex flex-col justify-between gap-10 bg-slate-950 p-6 text-white sm:p-10 lg:order-1 lg:p-12">
+            <div>
+              <p className="font-sans text-3xl font-semibold tracking-tight text-blue-400">NGFsystems</p>
+              <h1 className="mt-6 max-w-lg font-sans text-3xl font-semibold tracking-tight sm:text-4xl">
+                Create your account and start using the client portal immediately.
+              </h1>
+              <p className="mt-4 max-w-md text-sm leading-6 text-slate-300 sm:text-base">
+                Submit project requests, review invoices, and stay aligned with delivery updates from a single dashboard.
+              </p>
             </div>
-            <SignUp
-              appearance={{
-                elements: {
-                  rootBox: 'mx-auto w-full',
-                  card: 'w-full border-0 bg-transparent p-0 shadow-none',
-                },
-              }}
-            />
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Requests</p>
+                <p className="mt-2 text-sm text-slate-100">Share website goals, changes, and launch needs in one workflow.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Visibility</p>
+                <p className="mt-2 text-sm text-slate-100">See updates, invoices, and content tasks without waiting on manual follow-up.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="order-1 flex items-center justify-center bg-slate-50 p-4 sm:p-8 lg:order-2 lg:p-12">
+            <div className="w-full max-w-[420px]">
+              <SignUp
+                appearance={{
+                  elements: {
+                    rootBox: 'w-full',
+                    card: 'w-full rounded-2xl border border-gray-200 shadow-xl',
+                  },
+                }}
+              />
+            </div>
           </div>
         </section>
       </div>
