@@ -16,6 +16,11 @@ export default clerkMiddleware(async (auth, req) => {
   if (isPublicRoute(req)) return NextResponse.next()
   
   const { sessionClaims } = await auth()
+  if (path === '/admin/dashboard') {
+    console.log('ADMIN ATTEMPT - FULL CLAIMS:', JSON.stringify(sessionClaims))
+    const metadata = (sessionClaims as { metadata?: unknown } | null)?.metadata
+    console.log('ADMIN ATTEMPT - METADATA:', JSON.stringify(metadata))
+  }
   console.log('PATH:', path)
   console.log('FULL CLAIMS:', JSON.stringify(sessionClaims))
 
