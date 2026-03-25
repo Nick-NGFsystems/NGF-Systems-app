@@ -31,7 +31,7 @@ export default function Footer() {
           </div>
 
           {/* Copyright */}
-          <div className="text-right text-sm text-gray-400">
+          <div className="text-sm text-gray-400 md:text-right">
             <p>&copy; 2026 NGFsystems. All rights reserved.</p>
           </div>
         </div>
