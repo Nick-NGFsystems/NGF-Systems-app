@@ -15,7 +15,8 @@
     "next": "^15.3.8",
     "react": "18",
     "react-dom": "18",
-    "stripe": "latest"
+    "stripe": "latest",
+    "svix": "^1.88.0"
   },
   "devDependencies": {
     "@prisma/client": "^5.22.0",
