@@ -1,3 +1,4 @@
+import { db } from '@/lib/db'
 import Link from 'next/link'
 
 interface StatCard {
@@ -10,12 +11,6 @@ interface QuickAction {
   href: string
 }
 
-const statCards: StatCard[] = [
-  { label: 'Total Clients', value: '0' },
-  { label: 'Active Projects', value: '0' },
-  { label: 'Monthly Revenue', value: '$0' },
-]
-
 const quickActions: QuickAction[] = [
   { label: 'Add Client', href: '/admin/clients' },
   { label: 'New Project', href: '/admin/projects' },
@@ -23,7 +18,53 @@ const quickActions: QuickAction[] = [
   { label: 'New Invoice', href: '/admin/finances' },
 ]
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+
+  const [totalClients, activeProjects, monthlyRevenueResult] = await Promise.all([
+    db.client.count({
+      where: {
+        status: {
+          not: 'ARCHIVED',
+        },
+      },
+    }),
+    db.project.count({
+      where: {
+        status: {
+          in: ['ACTIVE', 'IN_PROGRESS'],
+        },
+      },
+    }),
+    db.invoice.aggregate({
+      _sum: {
+        amount: true,
+      },
+      where: {
+        status: 'PAID',
+        paid_date: {
+          gte: monthStart,
+          lt: nextMonthStart,
+        },
+      },
+    }),
+  ])
+
+  const monthlyRevenue = monthlyRevenueResult._sum.amount ?? 0
+  const statCards: StatCard[] = [
+    { label: 'Total Clients', value: totalClients.toString() },
+    { label: 'Active Projects', value: activeProjects.toString() },
+    {
+      label: 'Monthly Revenue',
+      value: new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+      }).format(monthlyRevenue),
+    },
+  ]
+
   return (
     <section className="space-y-10">
       <header className="space-y-2">
