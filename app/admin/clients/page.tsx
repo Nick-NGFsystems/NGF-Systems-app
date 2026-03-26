@@ -24,12 +24,13 @@ const clientColumns: ClientColumn[] = [
 ]
 
 const emptyState: EmptyState = {
-  title: 'No clients yet',
-  description: 'Create your first client to start tracking projects, finances, and portal access.',
+  title: 'No active clients yet',
+  description: 'Create a client or convert a lead to active to see them here.',
 }
 
 export default async function ClientsPage() {
   const clients = await db.client.findMany({
+    where: { status: 'ACTIVE' },
     orderBy: {
       created: 'desc',
     },
