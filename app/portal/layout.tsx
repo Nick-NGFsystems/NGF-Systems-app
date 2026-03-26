@@ -1,10 +1,25 @@
+import { auth } from '@clerk/nextjs/server'
+import { redirect } from 'next/navigation'
+import { getClientConfig } from '@/lib/portal'
 import PortalLayout from '@/components/layout/PortalLayout'
 import { ReactNode } from 'react'
 
-export default function PortalGroupLayout({ 
-  children 
-}: { 
-  children: ReactNode 
+export default async function PortalGroupLayout({
+  children,
+}: {
+  children: ReactNode
 }) {
-  return <PortalLayout>{children}</PortalLayout>
+  const { userId } = await auth()
+
+  if (!userId) {
+    redirect('/sign-in')
+  }
+
+  const client = await getClientConfig(userId)
+
+  if (!client || !client.config) {
+    redirect('/unauthorized')
+  }
+
+  return <PortalLayout config={client.config}>{children}</PortalLayout>
 }

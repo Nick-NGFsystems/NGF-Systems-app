@@ -1,3 +1,9 @@
+import { auth } from '@clerk/nextjs/server'
+import { redirect } from 'next/navigation'
+import { getClientConfig } from '@/lib/portal'
+
+export const dynamic = 'force-dynamic'
+
 interface EmptyState {
   title: string
   description: string
@@ -8,7 +14,11 @@ const emptyState: EmptyState = {
   description: 'Your website status, analytics highlights, and latest updates will appear here.',
 }
 
-export default function PortalWebsitePage() {
+export default async function PortalWebsitePage() {
+  const { userId } = await auth()
+  if (!userId) redirect('/sign-in')
+  const client = await getClientConfig(userId!)
+  if (!client?.config?.page_website) redirect('/unauthorized')
   return (
     <section className="space-y-8">
       <header>

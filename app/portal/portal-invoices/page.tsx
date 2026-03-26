@@ -1,3 +1,9 @@
+import { auth } from '@clerk/nextjs/server'
+import { redirect } from 'next/navigation'
+import { getClientConfig } from '@/lib/portal'
+
+export const dynamic = 'force-dynamic'
+
 interface EmptyState {
   title: string
   description: string
@@ -8,7 +14,11 @@ const emptyState: EmptyState = {
   description: 'Invoices shared by your admin team will be listed here for quick access.',
 }
 
-export default function PortalInvoicesPage() {
+export default async function PortalInvoicesPage() {
+  const { userId } = await auth()
+  if (!userId) redirect('/sign-in')
+  const client = await getClientConfig(userId!)
+  if (!client?.config?.page_invoices) redirect('/unauthorized')
   return (
     <section className="space-y-8">
       <header>

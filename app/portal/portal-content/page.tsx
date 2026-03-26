@@ -1,3 +1,9 @@
+import { auth } from '@clerk/nextjs/server'
+import { redirect } from 'next/navigation'
+import { getClientConfig } from '@/lib/portal'
+
+export const dynamic = 'force-dynamic'
+
 interface EmptyState {
   title: string
   description: string
@@ -8,7 +14,11 @@ const emptyState: EmptyState = {
   description: 'When content fields are enabled, you will be able to update text and media here.',
 }
 
-export default function PortalContentPage() {
+export default async function PortalContentPage() {
+  const { userId } = await auth()
+  if (!userId) redirect('/sign-in')
+  const client = await getClientConfig(userId!)
+  if (!client?.config?.page_content) redirect('/unauthorized')
   return (
     <section className="space-y-8">
       <header>

@@ -4,21 +4,26 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { UserButton } from '@clerk/nextjs'
 import NavLink from './NavLink'
+import { ClientConfig } from '@prisma/client'
 
 interface PortalNavbarLink {
   label: string
   href: string
 }
 
-export default function PortalNavbar() {
+interface PortalNavbarProps {
+  config: ClientConfig
+}
+
+export default function PortalNavbar({ config }: PortalNavbarProps) {
   const [isOpen, setIsOpen] = useState(false)
 
   const links: PortalNavbarLink[] = [
     { label: 'Dashboard', href: '/portal/portal-dashboard' },
-    { label: 'My Website', href: '/portal/portal-website' },
-    { label: 'Content', href: '/portal/portal-content' },
-    { label: 'Invoices', href: '/portal/portal-invoices' },
-    { label: 'Request', href: '/portal/portal-request' },
+    ...(config.page_website ? [{ label: 'My Website', href: '/portal/portal-website' }] : []),
+    ...(config.page_content ? [{ label: 'Content', href: '/portal/portal-content' }] : []),
+    ...(config.page_invoices ? [{ label: 'Invoices', href: '/portal/portal-invoices' }] : []),
+    ...(config.page_request ? [{ label: 'Request', href: '/portal/portal-request' }] : []),
   ]
 
   return (

@@ -9,14 +9,15 @@ datasource db {
 }
 
 model Client {
-  id       String        @id @default(cuid())
-  email    String        @unique
-  name     String
-  status   String        @default("LEAD")
-  created  DateTime      @default(now())
-  updated  DateTime      @updatedAt
-  config   ClientConfig?
-  projects Project[]
+  id             String        @id @default(cuid())
+  clerk_user_id  String?       @unique
+  email          String        @unique
+  name           String
+  status         String        @default("LEAD")
+  created        DateTime      @default(now())
+  updated        DateTime      @updatedAt
+  config         ClientConfig?
+  projects       Project[]
 
   @@map("clients")
 }

@@ -1,11 +1,18 @@
 import { clerkClient } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { Webhook } from 'svix'
+import { db } from '@/lib/db'
+
+interface ClerkEmailAddress {
+  email_address: string
+  id: string
+}
 
 interface ClerkUserCreatedEvent {
   type: 'user.created'
   data: {
     id: string
+    email_addresses: ClerkEmailAddress[]
   }
 }
 
@@ -27,8 +34,8 @@ function isUserCreatedEvent(event: ClerkWebhookEvent): event is ClerkUserCreated
   if (event.type !== 'user.created') return false
   if (typeof event.data !== 'object' || event.data === null) return false
 
-  const data = event.data as { id?: unknown }
-  return typeof data.id === 'string'
+  const data = event.data as { id?: unknown; email_addresses?: unknown }
+  return typeof data.id === 'string' && Array.isArray(data.email_addresses)
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -80,10 +87,24 @@ export async function POST(req: Request): Promise<Response> {
 
   try {
     if (isUserCreatedEvent(verifiedPayload)) {
-      const client = await clerkClient()
-      await client.users.updateUserMetadata(verifiedPayload.data.id, {
+      const clerk = await clerkClient()
+
+      // Set role to 'client' for all new sign-ups
+      await clerk.users.updateUserMetadata(verifiedPayload.data.id, {
         publicMetadata: { role: 'client' },
       })
+
+      // Link the new Clerk user to an existing client record by email
+      const primaryEmail = verifiedPayload.data.email_addresses[0]?.email_address
+      if (primaryEmail) {
+        await db.client.updateMany({
+          where: {
+            email: primaryEmail,
+            clerk_user_id: null,
+          },
+          data: { clerk_user_id: verifiedPayload.data.id },
+        })
+      }
     }
 
     return NextResponse.json({ success: true })
