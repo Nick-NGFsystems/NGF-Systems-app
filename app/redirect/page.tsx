@@ -1,16 +1,33 @@
-import { auth, currentUser } from '@clerk/nextjs/server'
-import { redirect } from 'next/navigation'
+'use client'
 
-export default async function RedirectPage() {
-  const { sessionClaims } = await auth()
-  const user = await currentUser()
+import { useAuth, useUser } from '@clerk/nextjs'
+import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
 
-  const claimsRole = (sessionClaims?.metadata as { role?: string })?.role
-  const metaRole = (user?.publicMetadata as { role?: string })?.role
-  const role = claimsRole || metaRole
+export default function RedirectPage() {
+  const { isLoaded: authLoaded, sessionClaims } = useAuth()
+  const { isLoaded: userLoaded, user } = useUser()
+  const router = useRouter()
 
-  if (role === 'admin') redirect('/admin/dashboard')
-  if (role === 'client') redirect('/portal/portal-dashboard')
+  useEffect(() => {
+    if (!authLoaded || !userLoaded) return
 
-  redirect('/unauthorized')
+    const claimsRole = (sessionClaims?.metadata as { role?: string })?.role
+    const metaRole = (user?.publicMetadata as { role?: string })?.role
+    const role = claimsRole || metaRole
+
+    if (role === 'admin') {
+      router.replace('/admin/dashboard')
+    } else if (role === 'client') {
+      router.replace('/portal/portal-dashboard')
+    } else {
+      router.replace('/unauthorized')
+    }
+  }, [authLoaded, userLoaded, sessionClaims, user, router])
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-white">
+      <p className="text-sm text-gray-500">Signing you in…</p>
+    </div>
+  )
 }
