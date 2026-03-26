@@ -1,3 +1,34 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── Clerk widget: force full-width on all screen sizes ── */
+.cl-rootBox {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.cl-card {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.cl-formField,
+.cl-formFieldRow,
+.cl-formFieldLabelRow,
+.cl-formFieldInputGroup {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.cl-formFieldInput,
+.cl-socialButtonsBlockButton {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
