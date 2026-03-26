@@ -88,22 +88,56 @@ export async function POST(req: Request): Promise<Response> {
   try {
     if (isUserCreatedEvent(verifiedPayload)) {
       const clerk = await clerkClient()
-
-      // Set role to 'client' for all new sign-ups
-      await clerk.users.updateUserMetadata(verifiedPayload.data.id, {
-        publicMetadata: { role: 'client' },
-      })
-
-      // Link the new Clerk user to an existing client record by email
       const primaryEmail = verifiedPayload.data.email_addresses[0]?.email_address
-      if (primaryEmail) {
-        await db.client.updateMany({
-          where: {
-            email: primaryEmail,
-            clerk_user_id: null,
-          },
-          data: { clerk_user_id: verifiedPayload.data.id },
+
+      // Only set role to 'client' if the user doesn't already have a role.
+      // This prevents overriding an admin account that was manually given 'admin'.
+      const existingRole = (verifiedPayload.data as Record<string, unknown>)?.public_metadata
+        ? ((verifiedPayload.data as Record<string, unknown>).public_metadata as Record<string, unknown>)?.role
+        : undefined
+
+      if (!existingRole) {
+        await clerk.users.updateUserMetadata(verifiedPayload.data.id, {
+          publicMetadata: { role: 'client' },
         })
+      }
+
+      if (primaryEmail) {
+        // Try to link to an existing client row created by admin
+        const existing = await db.client.findUnique({ where: { email: primaryEmail } })
+
+        if (existing) {
+          // Link the Clerk user ID if not already linked
+          if (!existing.clerk_user_id) {
+            await db.client.update({
+              where: { id: existing.id },
+              data: { clerk_user_id: verifiedPayload.data.id },
+            })
+          }
+        } else {
+          // Self-signup: create a new client row + config with only page_request enabled
+          const newClient = await db.client.create({
+            data: {
+              email: primaryEmail,
+              name: primaryEmail.split('@')[0],
+              status: 'LEAD',
+              clerk_user_id: verifiedPayload.data.id,
+            },
+          })
+          await db.clientConfig.create({
+            data: {
+              client_id: newClient.id,
+              page_request: true,
+              page_website: false,
+              page_content: false,
+              page_invoices: false,
+              feature_blog: false,
+              feature_products: false,
+              feature_booking: false,
+              feature_gallery: false,
+            },
+          })
+        }
       }
     }
 
