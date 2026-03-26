@@ -1,6 +1,8 @@
 import FinancesManager from '@/components/admin/FinancesManager'
 import { db } from '@/lib/db'
 
+export const dynamic = 'force-dynamic'
+
 function isDateInCurrentMonth(date: Date, now: Date) {
   return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()
 }

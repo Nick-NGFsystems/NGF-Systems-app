@@ -4,6 +4,8 @@ import ClientStatusSelect from '@/components/admin/ClientStatusSelect'
 import { db } from '@/lib/db'
 import Link from 'next/link'
 
+export const dynamic = 'force-dynamic'
+
 interface ClientColumn {
   label: string
 }
