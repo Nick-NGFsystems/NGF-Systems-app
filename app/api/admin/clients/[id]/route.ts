@@ -10,6 +10,8 @@ interface RouteContext {
 }
 
 interface UpdateClientBody {
+  name?: string
+  email?: string
   status?: string
 }
 
@@ -68,14 +70,20 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
 
     const body = (await request.json()) as UpdateClientBody
+    const name = body.name?.trim()
+    const email = body.email?.trim().toLowerCase()
     const status = body.status?.trim().toUpperCase()
 
-    if (!status) {
-      return NextResponse.json({ success: false, error: 'Status is required' }, { status: 400 })
+    if (!name && !email && !status) {
+      return NextResponse.json({ success: false, error: 'At least one field is required' }, { status: 400 })
     }
 
-    if (!CLIENT_STATUSES.includes(status as (typeof CLIENT_STATUSES)[number])) {
+    if (status && !CLIENT_STATUSES.includes(status as (typeof CLIENT_STATUSES)[number])) {
       return NextResponse.json({ success: false, error: 'Invalid status value' }, { status: 400 })
+    }
+
+    if (email && !email.includes('@')) {
+      return NextResponse.json({ success: false, error: 'Invalid email address' }, { status: 400 })
     }
 
     const existingClient = await db.client.findUnique({
@@ -87,9 +95,24 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Client not found' }, { status: 404 })
     }
 
+    if (email) {
+      const emailTaken = await db.client.findFirst({
+        where: { email, NOT: { id: clientId } },
+        select: { id: true },
+      })
+      if (emailTaken) {
+        return NextResponse.json({ success: false, error: 'Email already in use' }, { status: 400 })
+      }
+    }
+
+    const data: { name?: string; email?: string; status?: string } = {}
+    if (name) data.name = name
+    if (email) data.email = email
+    if (status) data.status = status
+
     const updatedClient = await db.client.update({
       where: { id: clientId },
-      data: { status },
+      data,
     })
 
     return NextResponse.json({ success: true, data: updatedClient })
