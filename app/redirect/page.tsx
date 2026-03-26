@@ -2,12 +2,13 @@
 
 import { useAuth, useUser } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 export default function RedirectPage() {
   const { isLoaded: authLoaded, sessionClaims } = useAuth()
   const { isLoaded: userLoaded, user } = useUser()
   const router = useRouter()
+  const attempts = useRef(0)
 
   useEffect(() => {
     if (!authLoaded || !userLoaded) return
@@ -20,6 +21,14 @@ export default function RedirectPage() {
       router.replace('/admin/dashboard')
     } else if (role === 'client') {
       router.replace('/portal/portal-dashboard')
+    } else if (attempts.current < 5) {
+      // Webhook may not have fired yet — retry up to 5 times with increasing delay
+      attempts.current += 1
+      const delay = attempts.current * 1000
+      const timer = setTimeout(() => {
+        user?.reload()
+      }, delay)
+      return () => clearTimeout(timer)
     } else {
       router.replace('/unauthorized')
     }
@@ -27,15 +36,8 @@ export default function RedirectPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-white">
-      <div className="space-y-2 rounded border border-gray-200 bg-gray-50 p-6 text-xs font-mono text-gray-700 max-w-lg w-full mx-4">
-        <p className="font-bold text-sm text-gray-900 mb-3">Auth Debug</p>
-        <p>authLoaded: {String(authLoaded)}</p>
-        <p>userLoaded: {String(userLoaded)}</p>
-        <p>sessionClaims.metadata: {JSON.stringify((sessionClaims as Record<string, unknown>)?.metadata ?? 'null')}</p>
-        <p>user.publicMetadata: {JSON.stringify(user?.publicMetadata ?? 'null')}</p>
-        <p>user.id: {user?.id ?? 'null'}</p>
-        <p>user.email: {user?.emailAddresses[0]?.emailAddress ?? 'null'}</p>
-      </div>
+      <p className="text-sm text-gray-500">Setting up your account…</p>
     </div>
   )
 }
+
