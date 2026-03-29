@@ -13,6 +13,9 @@ model Client {
   clerk_user_id  String?       @unique
   email          String        @unique
   name           String
+  business       String?
+  intent         String?
+  notes          String?
   status         String        @default("LEAD")
   created        DateTime      @default(now())
   updated        DateTime      @updatedAt
