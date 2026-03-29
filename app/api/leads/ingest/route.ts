@@ -9,25 +9,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { name, email, business, intent } = await req.json()
+    const { name, email, phone, contact_names, business, intent, notes } = await req.json()
 
-    if (!name || !email) {
-      return NextResponse.json({ success: false, error: 'Name and email are required' }, { status: 400 })
-    }
+    const normalizedName = typeof name === 'string' ? name.trim() : ''
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''
+    const normalizedPhone = typeof phone === 'string' ? phone.trim() : ''
+    const normalizedContactNames = typeof contact_names === 'string' ? contact_names.trim() : ''
+    const normalizedBusiness = typeof business === 'string' ? business.trim() : ''
+    const normalizedIntent = typeof intent === 'string' ? intent.trim() : ''
+    const normalizedNotes = typeof notes === 'string' ? notes.trim() : ''
 
-    // Check if client with this email already exists
-    const existing = await db.client.findUnique({ where: { email } })
-    if (existing) {
-      return NextResponse.json({ success: true, data: existing, message: 'Lead already exists' })
+    if (normalizedEmail) {
+      const existing = await db.client.findFirst({ where: { email: normalizedEmail } })
+      if (existing) {
+        return NextResponse.json({ success: true, data: existing, message: 'Lead already exists' })
+      }
     }
 
     // Create client record with LEAD status
     const client = await db.client.create({
       data: {
-        name,
-        email,
-        business: business ?? null,
-        intent: intent ?? null,
+        name: normalizedName || null,
+        email: normalizedEmail || null,
+        phone: normalizedPhone || null,
+        contact_names: normalizedContactNames || null,
+        business: normalizedBusiness || null,
+        intent: normalizedIntent || null,
+        notes: normalizedNotes || null,
         status: 'LEAD',
         config: {
           create: {

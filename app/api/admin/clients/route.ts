@@ -7,6 +7,9 @@ type ClientStatus = 'ACTIVE' | 'LEAD'
 interface CreateClientBody {
   name?: string
   email?: string
+  phone?: string
+  contact_names?: string
+  notes?: string
   status?: ClientStatus
 }
 
@@ -20,16 +23,26 @@ export async function POST(request: Request) {
     }
 
     const body = (await request.json()) as CreateClientBody
-    const name = body.name?.trim()
-    const email = body.email?.trim().toLowerCase()
+    const name = body.name?.trim() || null
+    const email = body.email?.trim().toLowerCase() || null
+    const phone = body.phone?.trim() || null
+    const contactNames = body.contact_names?.trim() || null
+    const notes = body.notes?.trim() || null
     const status: ClientStatus = body.status ?? 'ACTIVE'
-
-    if (!name || !email) {
-      return NextResponse.json({ success: false, error: 'Name and email are required' }, { status: 400 })
-    }
 
     if (!['ACTIVE', 'LEAD'].includes(status)) {
       return NextResponse.json({ success: false, error: 'Invalid status value' }, { status: 400 })
+    }
+
+    if (email && !email.includes('@')) {
+      return NextResponse.json({ success: false, error: 'Invalid email address' }, { status: 400 })
+    }
+
+    if (email) {
+      const existing = await db.client.findFirst({ where: { email }, select: { id: true } })
+      if (existing) {
+        return NextResponse.json({ success: false, error: 'A client with this email already exists' }, { status: 400 })
+      }
     }
 
     const client = await db.$transaction(async (tx) => {
@@ -37,6 +50,9 @@ export async function POST(request: Request) {
         data: {
           name,
           email,
+          phone,
+          contact_names: contactNames,
+          notes,
           status,
         },
       })
@@ -54,12 +70,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, data: client })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to create client'
-
-    if (message.includes('Unique constraint failed')) {
-      return NextResponse.json({ success: false, error: 'A client with this email already exists' }, { status: 400 })
-    }
-
     return NextResponse.json({ success: false, error: 'Failed to create client' }, { status: 500 })
   }
 }

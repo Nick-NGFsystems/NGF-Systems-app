@@ -39,19 +39,34 @@ export default async function ClientDetailPage({ params }: ClientDetailPageProps
       <header className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <h1 className="font-sans text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
-            {client.name}
+            {client.name ?? 'Unnamed Client'}
           </h1>
           <EditClientModal
             clientId={client.id}
             currentName={client.name}
             currentEmail={client.email}
+            currentPhone={client.phone}
+            currentContactNames={client.contact_names}
+            currentNotes={client.notes}
           />
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Email</p>
-            <p className="mt-1 text-sm text-gray-900">{client.email}</p>
+            <p className="mt-1 text-sm text-gray-900 break-words">{client.email ?? '—'}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Phone</p>
+            <p className="mt-1 text-sm text-gray-900 break-words">{client.phone ?? '—'}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Names of People</p>
+            <p className="mt-1 text-sm text-gray-900 break-words">{client.contact_names ?? '—'}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Notes</p>
+            <p className="mt-1 text-sm text-gray-900 break-words whitespace-pre-wrap">{client.notes ?? '—'}</p>
           </div>
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Created</p>

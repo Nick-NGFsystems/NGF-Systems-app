@@ -3,16 +3,31 @@
 import { FormEvent, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+type ClientStatus = 'ACTIVE' | 'LEAD'
+
+interface AddClientModalProps {
+  defaultStatus?: ClientStatus
+  buttonLabel?: string
+  modalTitle?: string
+}
+
 interface ApiResponse {
   success: boolean
   error?: string
 }
 
-export default function AddClientModal() {
+export default function AddClientModal({
+  defaultStatus = 'ACTIVE',
+  buttonLabel = 'Add Client',
+  modalTitle = 'Add Client',
+}: AddClientModalProps) {
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [contactNames, setContactNames] = useState('')
+  const [notes, setNotes] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -20,6 +35,9 @@ export default function AddClientModal() {
     setIsOpen(false)
     setName('')
     setEmail('')
+    setPhone('')
+    setContactNames('')
+    setNotes('')
     setError(null)
   }
 
@@ -34,21 +52,28 @@ export default function AddClientModal() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name, email }),
+        body: JSON.stringify({
+          name,
+          email,
+          phone,
+          contact_names: contactNames,
+          notes,
+          status: defaultStatus,
+        }),
       })
 
       const result = (await response.json()) as ApiResponse
 
       if (!response.ok || !result.success) {
-        setError(result.error ?? 'Unable to create client')
-        setIsSubmitting(false)
+        setError(result.error ?? 'Unable to save')
         return
       }
 
       closeModal()
       router.refresh()
     } catch {
-      setError('Unable to create client')
+      setError('Unable to save')
+    } finally {
       setIsSubmitting(false)
     }
   }
@@ -60,14 +85,14 @@ export default function AddClientModal() {
         onClick={() => setIsOpen(true)}
         className="h-11 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-700"
       >
-        Add Client
+        {buttonLabel}
       </button>
 
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
           <div className="w-full max-w-md rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
             <div className="flex items-start justify-between gap-4">
-              <h2 className="font-sans text-xl font-semibold tracking-tight text-slate-900">Add Client</h2>
+              <h2 className="font-sans text-xl font-semibold tracking-tight text-slate-900">{modalTitle}</h2>
               <button
                 type="button"
                 onClick={closeModal}
@@ -80,7 +105,7 @@ export default function AddClientModal() {
             <form onSubmit={handleSubmit} className="mt-5 space-y-4">
               <div>
                 <label htmlFor="client-name" className="text-sm font-medium text-gray-700">
-                  Name
+                  Name (optional)
                 </label>
                 <input
                   id="client-name"
@@ -88,13 +113,12 @@ export default function AddClientModal() {
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                   className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-900 outline-none transition focus:border-blue-600"
-                  required
                 />
               </div>
 
               <div>
                 <label htmlFor="client-email" className="text-sm font-medium text-gray-700">
-                  Email
+                  Email (optional)
                 </label>
                 <input
                   id="client-email"
@@ -102,7 +126,46 @@ export default function AddClientModal() {
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-900 outline-none transition focus:border-blue-600"
-                  required
+                />
+              </div>
+
+              <div>
+                <label htmlFor="client-phone" className="text-sm font-medium text-gray-700">
+                  Phone (optional)
+                </label>
+                <input
+                  id="client-phone"
+                  type="text"
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-900 outline-none transition focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="client-contacts" className="text-sm font-medium text-gray-700">
+                  Names of People (optional)
+                </label>
+                <input
+                  id="client-contacts"
+                  type="text"
+                  value={contactNames}
+                  onChange={(event) => setContactNames(event.target.value)}
+                  placeholder="e.g. Jane Doe, John Smith"
+                  className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-900 outline-none transition focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="client-notes" className="text-sm font-medium text-gray-700">
+                  Notes (optional)
+                </label>
+                <textarea
+                  id="client-notes"
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  rows={3}
+                  className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-600"
                 />
               </div>
 
@@ -121,7 +184,7 @@ export default function AddClientModal() {
                   disabled={isSubmitting}
                   className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isSubmitting ? 'Saving...' : 'Create Client'}
+                  {isSubmitting ? 'Saving...' : defaultStatus === 'LEAD' ? 'Create Lead' : 'Create Client'}
                 </button>
               </div>
             </form>

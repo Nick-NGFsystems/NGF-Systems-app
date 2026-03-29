@@ -11,8 +11,10 @@ datasource db {
 model Client {
   id             String        @id @default(cuid())
   clerk_user_id  String?       @unique
-  email          String        @unique
-  name           String
+  email          String?       @unique
+  phone          String?
+  contact_names  String?
+  name           String?
   business       String?
   intent         String?
   notes          String?

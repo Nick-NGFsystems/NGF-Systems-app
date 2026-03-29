@@ -18,6 +18,9 @@ interface EmptyState {
 const clientColumns: ClientColumn[] = [
   { label: 'Name' },
   { label: 'Email' },
+  { label: 'Phone' },
+  { label: 'Names of People' },
+  { label: 'Notes' },
   { label: 'Status' },
   { label: 'Date Created' },
   { label: 'Actions' },
@@ -51,7 +54,7 @@ export default async function ClientsPage() {
           </div>
         ) : (
           <>
-            <div className="hidden border-b border-gray-100 px-6 py-4 md:grid md:grid-cols-5 md:gap-4">
+            <div className="hidden border-b border-gray-100 px-6 py-4 md:grid md:grid-cols-8 md:gap-4">
               {clientColumns.map((column) => (
                 <p key={column.label} className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                   {column.label}
@@ -61,7 +64,7 @@ export default async function ClientsPage() {
 
             <div className="divide-y divide-gray-100">
               {clients.map((client) => (
-                <div key={client.id} className="grid grid-cols-1 gap-3 px-6 py-4 md:grid-cols-5 md:gap-4 md:items-center">
+                <div key={client.id} className="grid grid-cols-1 gap-3 px-6 py-4 md:grid-cols-8 md:gap-4 md:items-center">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Name</p>
                     <p className="text-sm font-medium">
@@ -69,13 +72,25 @@ export default async function ClientsPage() {
                         href={`/admin/clients/${client.id}`}
                         className="text-gray-900 transition hover:text-blue-600"
                       >
-                        {client.name}
+                        {client.name ?? 'Unnamed'}
                       </Link>
                     </p>
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Email</p>
-                    <p className="text-sm text-gray-700">{client.email}</p>
+                    <p className="text-sm text-gray-700 break-words">{client.email ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Phone</p>
+                    <p className="text-sm text-gray-700 break-words">{client.phone ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Names of People</p>
+                    <p className="text-sm text-gray-700 break-words">{client.contact_names ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Notes</p>
+                    <p className="text-sm text-gray-700 break-words">{client.notes ?? '—'}</p>
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Status</p>
@@ -89,7 +104,7 @@ export default async function ClientsPage() {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Actions</p>
-                    <DeleteClientButton clientId={client.id} clientName={client.name} />
+                    <DeleteClientButton clientId={client.id} clientName={client.name ?? 'this client'} />
                   </div>
                 </div>
               ))}

@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation'
 
 interface ClientOption {
   id: string
-  name: string
-  email: string
+  name: string | null
+  email: string | null
 }
 
 interface TaskItem {
@@ -91,7 +91,7 @@ export default function ProjectsManager({ projects, clients }: ProjectsManagerPr
       const matchesSearch =
         normalizedSearch.length === 0 ||
         project.name.toLowerCase().includes(normalizedSearch) ||
-        (project.client?.name.toLowerCase().includes(normalizedSearch) ?? false)
+        (project.client?.name?.toLowerCase().includes(normalizedSearch) ?? false)
 
       return matchesStatus && matchesSearch
     })
@@ -502,7 +502,7 @@ export default function ProjectsManager({ projects, clients }: ProjectsManagerPr
                   </option>
                   {clients.map((client) => (
                     <option key={client.id} value={client.id}>
-                      {client.name} ({client.email})
+                      {client.name ?? 'Unnamed'} {client.email ? `(${client.email})` : ''}
                     </option>
                   ))}
                 </select>

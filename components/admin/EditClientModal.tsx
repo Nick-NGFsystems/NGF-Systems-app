@@ -5,8 +5,11 @@ import { useRouter } from 'next/navigation'
 
 interface EditClientModalProps {
   clientId: string
-  currentName: string
-  currentEmail: string
+  currentName?: string | null
+  currentEmail?: string | null
+  currentPhone?: string | null
+  currentContactNames?: string | null
+  currentNotes?: string | null
 }
 
 interface ApiResponse {
@@ -14,18 +17,31 @@ interface ApiResponse {
   error?: string
 }
 
-export default function EditClientModal({ clientId, currentName, currentEmail }: EditClientModalProps) {
+export default function EditClientModal({
+  clientId,
+  currentName,
+  currentEmail,
+  currentPhone,
+  currentContactNames,
+  currentNotes,
+}: EditClientModalProps) {
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
-  const [name, setName] = useState(currentName)
-  const [email, setEmail] = useState(currentEmail)
+  const [name, setName] = useState(currentName ?? '')
+  const [email, setEmail] = useState(currentEmail ?? '')
+  const [phone, setPhone] = useState(currentPhone ?? '')
+  const [contactNames, setContactNames] = useState(currentContactNames ?? '')
+  const [notes, setNotes] = useState(currentNotes ?? '')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const closeModal = () => {
     setIsOpen(false)
-    setName(currentName)
-    setEmail(currentEmail)
+    setName(currentName ?? '')
+    setEmail(currentEmail ?? '')
+    setPhone(currentPhone ?? '')
+    setContactNames(currentContactNames ?? '')
+    setNotes(currentNotes ?? '')
     setError(null)
   }
 
@@ -38,14 +54,19 @@ export default function EditClientModal({ clientId, currentName, currentEmail }:
       const response = await fetch(`/api/admin/clients/${clientId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), email: email.trim() }),
+        body: JSON.stringify({
+          name,
+          email,
+          phone,
+          contact_names: contactNames,
+          notes,
+        }),
       })
 
       const result = (await response.json()) as ApiResponse
 
       if (!response.ok || !result.success) {
         setError(result.error ?? 'Unable to update client')
-        setIsSubmitting(false)
         return
       }
 
@@ -53,6 +74,7 @@ export default function EditClientModal({ clientId, currentName, currentEmail }:
       router.refresh()
     } catch {
       setError('Unable to update client')
+    } finally {
       setIsSubmitting(false)
     }
   }
@@ -84,7 +106,7 @@ export default function EditClientModal({ clientId, currentName, currentEmail }:
             <form onSubmit={handleSubmit} className="mt-5 space-y-4">
               <div>
                 <label htmlFor="edit-client-name" className="text-sm font-medium text-gray-700">
-                  Name
+                  Name (optional)
                 </label>
                 <input
                   id="edit-client-name"
@@ -92,13 +114,12 @@ export default function EditClientModal({ clientId, currentName, currentEmail }:
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-900 outline-none transition focus:border-blue-600"
-                  required
                 />
               </div>
 
               <div>
                 <label htmlFor="edit-client-email" className="text-sm font-medium text-gray-700">
-                  Email
+                  Email (optional)
                 </label>
                 <input
                   id="edit-client-email"
@@ -106,7 +127,45 @@ export default function EditClientModal({ clientId, currentName, currentEmail }:
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-900 outline-none transition focus:border-blue-600"
-                  required
+                />
+              </div>
+
+              <div>
+                <label htmlFor="edit-client-phone" className="text-sm font-medium text-gray-700">
+                  Phone (optional)
+                </label>
+                <input
+                  id="edit-client-phone"
+                  type="text"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-900 outline-none transition focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="edit-client-contacts" className="text-sm font-medium text-gray-700">
+                  Names of People (optional)
+                </label>
+                <input
+                  id="edit-client-contacts"
+                  type="text"
+                  value={contactNames}
+                  onChange={(e) => setContactNames(e.target.value)}
+                  className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-900 outline-none transition focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="edit-client-notes" className="text-sm font-medium text-gray-700">
+                  Notes (optional)
+                </label>
+                <textarea
+                  id="edit-client-notes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-600"
                 />
               </div>
 
@@ -125,7 +184,7 @@ export default function EditClientModal({ clientId, currentName, currentEmail }:
                   disabled={isSubmitting}
                   className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isSubmitting ? 'Saving…' : 'Save Changes'}
+                  {isSubmitting ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>
