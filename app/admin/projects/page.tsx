@@ -1,32 +1,56 @@
-interface EmptyState {
-  title: string
-  description: string
-}
+import ProjectsManager from '@/components/admin/ProjectsManager'
+import { db } from '@/lib/db'
 
-const emptyState: EmptyState = {
-  title: 'No projects yet',
-  description: 'Create a project to start tracking delivery milestones and team progress.',
-}
+export const dynamic = 'force-dynamic'
 
-export default function ProjectsPage() {
-  return (
-    <section className="space-y-8">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="font-sans text-3xl font-semibold tracking-tight text-slate-900">Projects</h1>
-        <button
-          type="button"
-          className="h-11 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-700"
-        >
-          New Project
-        </button>
-      </header>
+export default async function ProjectsPage() {
+  const [projects, clients] = await Promise.all([
+    db.project.findMany({
+      include: {
+        client: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        tasks: {
+          orderBy: {
+            created: 'desc',
+          },
+        },
+      },
+      orderBy: {
+        created: 'desc',
+      },
+    }),
+    db.client.findMany({
+      where: {
+        status: {
+          in: ['ACTIVE', 'LEAD'],
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+      },
+      orderBy: {
+        created: 'desc',
+      },
+    }),
+  ])
 
-      <section className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
-        <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-6 py-12 text-center">
-          <p className="font-sans text-lg font-semibold tracking-tight text-gray-900">{emptyState.title}</p>
-          <p className="mt-2 text-sm text-gray-500">{emptyState.description}</p>
-        </div>
-      </section>
-    </section>
-  )
+  const serializedProjects = projects.map((project) => ({
+    ...project,
+    created: project.created.toISOString(),
+    updated: project.updated.toISOString(),
+    tasks: project.tasks.map((task) => ({
+      ...task,
+      created: task.created.toISOString(),
+      updated: task.updated.toISOString(),
+    })),
+  }))
+
+  return <ProjectsManager projects={serializedProjects} clients={clients} />
 }
