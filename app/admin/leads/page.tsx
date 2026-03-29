@@ -32,15 +32,20 @@ export default async function LeadsPage() {
           </div>
         ) : (
           <>
-            <div className="hidden border-b border-gray-100 px-6 py-4 md:grid md:grid-cols-9 md:gap-4">
-              {['Name', 'Email', 'Phone', 'Names of People', 'Notes', 'Business', 'Intent', 'Date Received', 'Actions'].map((col) => (
-                <p key={col} className="text-xs font-semibold uppercase tracking-wide text-gray-500">{col}</p>
+            <div className="hidden border-b border-gray-100 px-6 py-4 md:grid md:grid-cols-10 md:gap-4">
+              {['Name', 'Email', 'Phone', 'Names of People', 'Notes', 'Business', 'Intent', 'Date Received', 'Actions'].map((col, index) => (
+                <p
+                  key={col}
+                  className={`text-xs font-semibold uppercase tracking-wide text-gray-500 ${index === 8 ? 'md:col-span-2' : ''}`}
+                >
+                  {col}
+                </p>
               ))}
             </div>
 
             <div className="divide-y divide-gray-100">
               {leads.map((lead) => (
-                <div key={lead.id} className="grid grid-cols-1 gap-3 px-6 py-4 md:grid-cols-9 md:gap-4 md:items-center">
+                <div key={lead.id} className="grid grid-cols-1 gap-3 px-6 py-4 md:grid-cols-10 md:gap-4 md:items-center">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Name</p>
                     <p className="text-sm font-medium text-gray-900">{lead.name ?? '—'}</p>
@@ -73,7 +78,7 @@ export default async function LeadsPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Date Received</p>
                     <p className="text-sm text-gray-600">{new Date(lead.created).toLocaleDateString()}</p>
                   </div>
-                  <div className="flex w-full flex-col gap-2 md:flex-row md:items-start md:gap-3 sm:flex-row sm:gap-2">
+                  <div className="flex w-full flex-col gap-2 md:col-span-2 md:flex-row md:items-start md:gap-3 sm:flex-row sm:gap-2">
                     <EditClientModal
                       clientId={lead.id}
                       currentName={lead.name}
