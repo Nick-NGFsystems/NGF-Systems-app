@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import ConvertLeadButton from '@/components/admin/ConvertLeadButton'
 import DeleteClientButton from '@/components/admin/DeleteClientButton'
 import AddClientModal from '@/components/admin/AddClientModal'
+import EditClientModal from '@/components/admin/EditClientModal'
 
 export const dynamic = 'force-dynamic'
 
@@ -73,6 +74,14 @@ export default async function LeadsPage() {
                     <p className="text-sm text-gray-600">{new Date(lead.created).toLocaleDateString()}</p>
                   </div>
                   <div className="flex w-full flex-col gap-2 md:flex-row md:items-start md:gap-3 sm:flex-row sm:gap-2">
+                    <EditClientModal
+                      clientId={lead.id}
+                      currentName={lead.name}
+                      currentEmail={lead.email}
+                      currentPhone={lead.phone}
+                      currentContactNames={lead.contact_names}
+                      currentNotes={lead.notes}
+                    />
                     <ConvertLeadButton clientId={lead.id} />
                     <DeleteClientButton clientId={lead.id} clientName={lead.name ?? 'this lead'} />
                   </div>
