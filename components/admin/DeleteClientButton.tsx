@@ -49,12 +49,12 @@ export default function DeleteClientButton({ clientId, clientName }: DeleteClien
   }
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className="flex w-full flex-col items-start gap-1 sm:w-auto">
       <button
         type="button"
         onClick={handleDelete}
         disabled={isDeleting}
-        className="text-sm font-medium text-red-600 transition hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full text-sm font-medium text-red-600 transition hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
       >
         {isDeleting ? 'Deleting...' : 'Delete'}
       </button>

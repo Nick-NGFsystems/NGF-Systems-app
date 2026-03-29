@@ -42,21 +42,21 @@ export default async function LeadsPage() {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Email</p>
-                    <p className="text-sm text-gray-600">{lead.email}</p>
+                    <p className="text-sm text-gray-600 break-words">{lead.email}</p>
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Business</p>
-                    <p className="text-sm text-gray-600">{lead.business ?? '—'}</p>
+                    <p className="text-sm text-gray-600 break-words">{lead.business ?? '—'}</p>
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Intent</p>
-                    <p className="text-sm text-gray-600">{lead.intent ?? '—'}</p>
+                    <p className="text-sm text-gray-600 break-words">{lead.intent ?? '—'}</p>
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Date Received</p>
                     <p className="text-sm text-gray-600">{new Date(lead.created).toLocaleDateString()}</p>
                   </div>
-                  <div className="flex flex-wrap items-start gap-3">
+                  <div className="flex w-full flex-col gap-2 md:flex-row md:items-start md:gap-3 sm:flex-row sm:gap-2">
                     <ConvertLeadButton clientId={lead.id} />
                     <DeleteClientButton clientId={lead.id} clientName={lead.name} />
                   </div>

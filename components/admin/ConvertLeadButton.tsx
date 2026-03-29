@@ -47,12 +47,12 @@ export default function ConvertLeadButton({ clientId }: ConvertLeadButtonProps) 
   }
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className="flex w-full flex-col items-start gap-1 sm:w-auto">
       <button
         type="button"
         onClick={handleConvert}
         disabled={isSaving}
-        className="inline-flex h-9 items-center justify-center rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex w-full items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:h-9 sm:py-0"
       >
         {isSaving ? 'Converting...' : 'Convert to Client'}
       </button>
