@@ -1,17 +1,16 @@
-"use client"
+'use client'
 
-import { SignIn, useUser } from '@clerk/nextjs'
+import { SignIn } from '@clerk/nextjs'
 import { useEffect, useState } from 'react'
 
 export default function SignInPage() {
-  const { isLoaded } = useUser()
-  const [mounted, setMounted] = useState(false)
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    setMounted(true)
+    // Small delay to let Clerk initialize, with a maximum wait of 2 seconds
+    const timer = setTimeout(() => setReady(true), 300)
+    return () => clearTimeout(timer)
   }, [])
-
-  const ready = mounted && isLoaded
 
   return (
     <main className="flex min-h-screen bg-slate-900">
