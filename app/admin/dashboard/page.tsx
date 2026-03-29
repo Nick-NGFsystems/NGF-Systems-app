@@ -26,9 +26,7 @@ export default async function DashboardPage() {
   const [totalClients, activeProjects, recurringIncomeResult] = await Promise.all([
     db.client.count({
       where: {
-        status: {
-          not: 'ARCHIVED',
-        },
+        status: 'ACTIVE',
       },
     }),
     db.project.count({
