@@ -22,10 +22,8 @@ const quickActions: QuickAction[] = [
 
 export default async function DashboardPage() {
   const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1)
 
-  const [totalClients, activeProjects, monthlyRevenueResult] = await Promise.all([
+  const [totalClients, activeProjects, recurringIncomeResult] = await Promise.all([
     db.client.count({
       where: {
         status: {
@@ -40,21 +38,14 @@ export default async function DashboardPage() {
         },
       },
     }),
-    db.invoice.aggregate({
-      _sum: {
-        amount: true,
-      },
-      where: {
-        status: 'PAID',
-        paid_date: {
-          gte: monthStart,
-          lt: nextMonthStart,
-        },
-      },
-    }),
+    db.recurringIncome.findMany(),
   ])
 
-  const monthlyRevenue = monthlyRevenueResult._sum.amount ?? 0
+  // Calculate monthly revenue from recurring income
+  const monthlyRevenue = recurringIncomeResult.reduce((sum, item) => {
+    return sum + (item.frequency === 'YEARLY' ? item.amount / 12 : item.amount)
+  }, 0)
+
   const statCards: StatCard[] = [
     { label: 'Total Clients', value: totalClients.toString() },
     { label: 'Active Projects', value: activeProjects.toString() },

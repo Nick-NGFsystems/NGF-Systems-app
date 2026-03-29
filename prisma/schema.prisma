@@ -82,35 +82,53 @@ model TimeEntry {
   @@map("time_entries")
 }
 
-model Invoice {
+model RecurringIncome {
   id        String   @id @default(cuid())
-  client_id String?
-  title     String
+  name      String
   amount    Float
-  type      String   @default("ONE_TIME")
-  status    String   @default("PENDING")
-  due_date  DateTime?
-  paid_date DateTime?
+  frequency String   @default("MONTHLY")
   notes     String?
   created   DateTime @default(now())
   updated   DateTime @updatedAt
 
-  @@map("invoices")
+  @@map("recurring_income")
 }
 
-model Expense {
+model RecurringExpense {
   id        String   @id @default(cuid())
-  title     String
+  name      String
   amount    Float
-  type      String   @default("ONE_TIME")
+  frequency String   @default("MONTHLY")
   category  String   @default("OTHER")
-  paid_date DateTime?
-  next_due  DateTime?
   notes     String?
   created   DateTime @default(now())
   updated   DateTime @updatedAt
 
-  @@map("expenses")
+  @@map("recurring_expenses")
+}
+
+model OneTimeTransaction {
+  id      String   @id @default(cuid())
+  name    String
+  amount  Float
+  type    String
+  date    DateTime
+  notes   String?
+  created DateTime @default(now())
+  updated DateTime @updatedAt
+
+  @@map("one_time_transactions")
+}
+
+model BudgetAllocation {
+  id         String   @id @default(cuid())
+  name       String
+  percentage Float
+  notes      String?
+  created    DateTime @default(now())
+  updated    DateTime @updatedAt
+
+  @@map("budget_allocations")
 }
 
 model Contract {
