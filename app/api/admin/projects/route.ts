@@ -7,7 +7,7 @@ const PROJECT_STATUSES = ['PENDING', 'IN_PROGRESS', 'ACTIVE', 'COMPLETED', 'ON_H
 type ProjectStatus = (typeof PROJECT_STATUSES)[number]
 
 interface CreateProjectBody {
-  client_id?: string
+  client_id?: string | null
   name?: string
   status?: string
 }
@@ -61,25 +61,27 @@ export async function POST(request: Request) {
     }
 
     const body = (await request.json()) as CreateProjectBody
-    const clientId = body.client_id?.trim()
+    const clientId = body.client_id?.trim() || null
     const name = body.name?.trim()
     const status = (body.status?.trim().toUpperCase() ?? 'PENDING') as ProjectStatus
 
-    if (!clientId || !name) {
-      return NextResponse.json({ success: false, error: 'Client and project name are required' }, { status: 400 })
+    if (!name) {
+      return NextResponse.json({ success: false, error: 'Project name is required' }, { status: 400 })
     }
 
     if (!PROJECT_STATUSES.includes(status)) {
       return NextResponse.json({ success: false, error: 'Invalid project status' }, { status: 400 })
     }
 
-    const clientExists = await db.client.findUnique({
-      where: { id: clientId },
-      select: { id: true },
-    })
+    if (clientId) {
+      const clientExists = await db.client.findUnique({
+        where: { id: clientId },
+        select: { id: true },
+      })
 
-    if (!clientExists) {
-      return NextResponse.json({ success: false, error: 'Client not found' }, { status: 404 })
+      if (!clientExists) {
+        return NextResponse.json({ success: false, error: 'Client not found' }, { status: 404 })
+      }
     }
 
     const project = await db.project.create({

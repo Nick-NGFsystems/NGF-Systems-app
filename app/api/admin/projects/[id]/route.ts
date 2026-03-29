@@ -11,7 +11,7 @@ interface RouteContext {
 }
 
 interface UpdateProjectBody {
-  client_id?: string
+  client_id?: string | null
   name?: string
   status?: string
 }
@@ -33,11 +33,12 @@ export async function PATCH(request: Request, context: RouteContext) {
     const { id: projectId } = await context.params
     const body = (await request.json()) as UpdateProjectBody
 
+    const hasClientIdField = Object.prototype.hasOwnProperty.call(body, 'client_id')
     const name = body.name?.trim()
-    const clientId = body.client_id?.trim()
+    const clientId = body.client_id?.trim() || null
     const status = body.status?.trim().toUpperCase() as ProjectStatus | undefined
 
-    if (!name && !clientId && !status) {
+    if (!name && !hasClientIdField && !status) {
       return NextResponse.json({ success: false, error: 'At least one field is required' }, { status: 400 })
     }
 
@@ -54,7 +55,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Project not found' }, { status: 404 })
     }
 
-    if (clientId) {
+    if (hasClientIdField && clientId) {
       const clientExists = await db.client.findUnique({
         where: { id: clientId },
         select: { id: true },
@@ -65,10 +66,10 @@ export async function PATCH(request: Request, context: RouteContext) {
       }
     }
 
-    const data: { name?: string; client_id?: string; status?: ProjectStatus } = {}
+    const data: { name?: string; client_id?: string | null; status?: ProjectStatus } = {}
 
     if (name) data.name = name
-    if (clientId) data.client_id = clientId
+    if (hasClientIdField) data.client_id = clientId
     if (status) data.status = status
 
     const updatedProject = await db.project.update({

@@ -47,12 +47,12 @@ model ClientConfig {
 
 model Project {
   id        String   @id @default(cuid())
-  client_id String
+  client_id String?
   name      String
   status    String   @default("PENDING")
   created   DateTime @default(now())
   updated   DateTime @updatedAt
-  client    Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  client    Client?  @relation(fields: [client_id], references: [id], onDelete: SetNull)
   tasks     Task[]
 
   @@map("projects")

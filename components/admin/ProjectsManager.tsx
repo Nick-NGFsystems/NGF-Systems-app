@@ -20,12 +20,12 @@ interface TaskItem {
 
 interface ProjectItem {
   id: string
-  client_id: string
+  client_id: string | null
   name: string
   status: string
   created: string
   updated: string
-  client: ClientOption
+  client: ClientOption | null
   tasks: TaskItem[]
 }
 
@@ -91,7 +91,7 @@ export default function ProjectsManager({ projects, clients }: ProjectsManagerPr
       const matchesSearch =
         normalizedSearch.length === 0 ||
         project.name.toLowerCase().includes(normalizedSearch) ||
-        project.client.name.toLowerCase().includes(normalizedSearch)
+        (project.client?.name.toLowerCase().includes(normalizedSearch) ?? false)
 
       return matchesStatus && matchesSearch
     })
@@ -127,7 +127,7 @@ export default function ProjectsManager({ projects, clients }: ProjectsManagerPr
   const openEditProjectModal = (project: ProjectItem) => {
     setEditingProjectId(project.id)
     setProjectName(project.name)
-    setProjectClientId(project.client_id)
+    setProjectClientId(project.client_id ?? '')
     setProjectStatus((PROJECT_STATUSES.includes(project.status as (typeof PROJECT_STATUSES)[number])
       ? project.status
       : 'PENDING') as (typeof PROJECT_STATUSES)[number])
@@ -349,7 +349,7 @@ export default function ProjectsManager({ projects, clients }: ProjectsManagerPr
                       <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${getProjectStatusStyle(project.status)}`}>
                         {project.status.replace('_', ' ')}
                       </span>
-                      <span className="text-sm text-gray-500">Client: {project.client.name}</span>
+                      <span className="text-sm text-gray-500">Client: {project.client?.name ?? 'Unassigned'}</span>
                       <span className="text-sm text-gray-400">Created {formatDate(project.created)}</span>
                     </div>
                   </div>
@@ -493,13 +493,12 @@ export default function ProjectsManager({ projects, clients }: ProjectsManagerPr
               <div>
                 <label className="block text-sm font-medium text-gray-700">Client</label>
                 <select
-                  required
                   value={projectClientId}
                   onChange={(event) => setProjectClientId(event.target.value)}
                   className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm text-gray-900 focus:border-blue-500 focus:outline-none"
                 >
-                  <option value="" disabled>
-                    Select client
+                  <option value="">
+                    Unassigned
                   </option>
                   {clients.map((client) => (
                     <option key={client.id} value={client.id}>
