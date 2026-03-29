@@ -16,6 +16,7 @@ export default function AdminNavbar() {
   const links: AdminNavbarLink[] = [
     { label: 'Dashboard', href: '/admin/dashboard' },
     { label: 'Clients', href: '/admin/clients' },
+    { label: 'Leads', href: '/admin/leads' },
     { label: 'Projects', href: '/admin/projects' },
     { label: 'Finances', href: '/admin/finances' },
     { label: 'Contracts', href: '/admin/contracts' },
