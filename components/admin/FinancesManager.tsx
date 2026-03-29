@@ -176,7 +176,6 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
       if (!response.ok) {
         const data = await response.json()
         setError(data.error || 'Failed to create income')
-        setIsLoading(false)
         return
       }
 
@@ -188,6 +187,7 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
       onRefresh()
     } catch (err) {
       setError('Failed to create income')
+    } finally {
       setIsLoading(false)
     }
   }
@@ -356,7 +356,6 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
       if (!response.ok) {
         const data = await response.json()
         setError(data.error || 'Failed to create expense')
-        setIsLoading(false)
         return
       }
 
@@ -369,6 +368,7 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
       onRefresh()
     } catch (err) {
       setError('Failed to create expense')
+    } finally {
       setIsLoading(false)
     }
   }
@@ -551,7 +551,6 @@ function OneTimeTransactionsSection({ transactions, onRefresh }: OneTimeTransact
       if (!response.ok) {
         const data = await response.json()
         setError(data.error || 'Failed to create transaction')
-        setIsLoading(false)
         return
       }
 
@@ -564,6 +563,7 @@ function OneTimeTransactionsSection({ transactions, onRefresh }: OneTimeTransact
       onRefresh()
     } catch (err) {
       setError('Failed to create transaction')
+    } finally {
       setIsLoading(false)
     }
   }
@@ -778,7 +778,6 @@ function BudgetAllocationsSection({ allocations, totalPercentage, onRefresh }: B
       if (!response.ok) {
         const data = await response.json()
         setError(data.error || 'Failed to create allocation')
-        setIsLoading(false)
         return
       }
 
@@ -789,6 +788,7 @@ function BudgetAllocationsSection({ allocations, totalPercentage, onRefresh }: B
       onRefresh()
     } catch (err) {
       setError('Failed to create allocation')
+    } finally {
       setIsLoading(false)
     }
   }
