@@ -149,6 +149,7 @@ interface RecurringIncomeSectionProps {
 
 function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionProps) {
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingIncomeId, setEditingIncomeId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
   const [frequency, setFrequency] = useState('YEARLY')
@@ -156,14 +157,42 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const resetForm = () => {
+    setEditingIncomeId(null)
+    setName('')
+    setAmount('')
+    setFrequency('YEARLY')
+    setNotes('')
+  }
+
+  const openCreateModal = () => {
+    setError(null)
+    resetForm()
+    setIsModalOpen(true)
+  }
+
+  const openEditModal = (income: RecurringIncome) => {
+    setError(null)
+    setEditingIncomeId(income.id)
+    setName(income.name)
+    setAmount(String(income.amount))
+    setFrequency(income.frequency)
+    setNotes(income.notes ?? '')
+    setIsModalOpen(true)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setIsLoading(true)
 
     try {
-      const response = await fetch('/api/admin/finances/recurring-income', {
-        method: 'POST',
+      const endpoint = editingIncomeId
+        ? `/api/admin/finances/recurring-income/${editingIncomeId}`
+        : '/api/admin/finances/recurring-income'
+
+      const response = await fetch(endpoint, {
+        method: editingIncomeId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
@@ -175,18 +204,15 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
 
       if (!response.ok) {
         const data = await response.json()
-        setError(data.error || 'Failed to create income')
+        setError(data.error || `Failed to ${editingIncomeId ? 'update' : 'create'} income`)
         return
       }
 
       setIsModalOpen(false)
-      setName('')
-      setAmount('')
-      setFrequency('YEARLY')
-      setNotes('')
+      resetForm()
       onRefresh()
     } catch (err) {
-      setError('Failed to create income')
+      setError(`Failed to ${editingIncomeId ? 'update' : 'create'} income`)
     } finally {
       setIsLoading(false)
     }
@@ -214,7 +240,7 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
         <h2 className="font-sans text-xl font-semibold tracking-tight text-gray-900">Recurring Income</h2>
         <button
           type="button"
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreateModal}
           className="h-11 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-700"
         >
           Add Income
@@ -235,13 +261,22 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
                   {formatCurrency(income.amount)} {income.frequency === 'YEARLY' ? 'per year' : 'per month'}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => handleDelete(income.id)}
-                className="rounded-md border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50"
-              >
-                Delete
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openEditModal(income)}
+                  className="rounded-md border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-100"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(income.id)}
+                  className="rounded-md border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))
         )}
@@ -250,7 +285,9 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="relative w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
-            <h3 className="mb-4 text-lg font-semibold">Add Recurring Income</h3>
+            <h3 className="mb-4 text-lg font-semibold">
+              {editingIncomeId ? 'Edit Recurring Income' : 'Add Recurring Income'}
+            </h3>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Name</label>
@@ -299,6 +336,7 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
                   onClick={() => {
                     setIsModalOpen(false)
                     setError(null)
+                    resetForm()
                   }}
                   className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
                 >
@@ -309,7 +347,7 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
                   disabled={isLoading}
                   className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {isLoading ? 'Adding...' : 'Add'}
+                  {isLoading ? (editingIncomeId ? 'Saving...' : 'Adding...') : editingIncomeId ? 'Save' : 'Add'}
                 </button>
               </div>
             </form>
@@ -327,6 +365,7 @@ interface RecurringExpensesSectionProps {
 
 function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSectionProps) {
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
   const [frequency, setFrequency] = useState('YEARLY')
@@ -335,14 +374,44 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const resetForm = () => {
+    setEditingExpenseId(null)
+    setName('')
+    setAmount('')
+    setFrequency('YEARLY')
+    setCategory('OTHER')
+    setNotes('')
+  }
+
+  const openCreateModal = () => {
+    setError(null)
+    resetForm()
+    setIsModalOpen(true)
+  }
+
+  const openEditModal = (expense: RecurringExpense) => {
+    setError(null)
+    setEditingExpenseId(expense.id)
+    setName(expense.name)
+    setAmount(String(expense.amount))
+    setFrequency(expense.frequency)
+    setCategory(expense.category)
+    setNotes(expense.notes ?? '')
+    setIsModalOpen(true)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setIsLoading(true)
 
     try {
-      const response = await fetch('/api/admin/finances/recurring-expenses', {
-        method: 'POST',
+      const endpoint = editingExpenseId
+        ? `/api/admin/finances/recurring-expenses/${editingExpenseId}`
+        : '/api/admin/finances/recurring-expenses'
+
+      const response = await fetch(endpoint, {
+        method: editingExpenseId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
@@ -355,19 +424,15 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
 
       if (!response.ok) {
         const data = await response.json()
-        setError(data.error || 'Failed to create expense')
+        setError(data.error || `Failed to ${editingExpenseId ? 'update' : 'create'} expense`)
         return
       }
 
       setIsModalOpen(false)
-      setName('')
-      setAmount('')
-      setFrequency('YEARLY')
-      setCategory('OTHER')
-      setNotes('')
+      resetForm()
       onRefresh()
     } catch (err) {
-      setError('Failed to create expense')
+      setError(`Failed to ${editingExpenseId ? 'update' : 'create'} expense`)
     } finally {
       setIsLoading(false)
     }
@@ -395,7 +460,7 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
         <h2 className="font-sans text-xl font-semibold tracking-tight text-gray-900">Recurring Expenses</h2>
         <button
           type="button"
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreateModal}
           className="h-11 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-700"
         >
           Add Expense
@@ -416,13 +481,22 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
                   {formatCurrency(expense.amount)} {expense.frequency === 'YEARLY' ? 'per year' : 'per month'} • {expense.category}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => handleDelete(expense.id)}
-                className="rounded-md border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50"
-              >
-                Delete
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openEditModal(expense)}
+                  className="rounded-md border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-100"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(expense.id)}
+                  className="rounded-md border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))
         )}
@@ -431,7 +505,9 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="relative w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
-            <h3 className="mb-4 text-lg font-semibold">Add Recurring Expense</h3>
+            <h3 className="mb-4 text-lg font-semibold">
+              {editingExpenseId ? 'Edit Recurring Expense' : 'Add Recurring Expense'}
+            </h3>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Name</label>
@@ -494,6 +570,7 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
                   onClick={() => {
                     setIsModalOpen(false)
                     setError(null)
+                    resetForm()
                   }}
                   className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
                 >
@@ -504,7 +581,7 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
                   disabled={isLoading}
                   className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {isLoading ? 'Adding...' : 'Add'}
+                  {isLoading ? (editingExpenseId ? 'Saving...' : 'Adding...') : editingExpenseId ? 'Save' : 'Add'}
                 </button>
               </div>
             </form>
@@ -522,6 +599,7 @@ interface OneTimeTransactionsSectionProps {
 
 function OneTimeTransactionsSection({ transactions, onRefresh }: OneTimeTransactionsSectionProps) {
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null)
   const [transactionType, setTransactionType] = useState('EXPENSE')
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
@@ -530,14 +608,44 @@ function OneTimeTransactionsSection({ transactions, onRefresh }: OneTimeTransact
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const resetForm = () => {
+    setEditingTransactionId(null)
+    setTransactionType('EXPENSE')
+    setName('')
+    setAmount('')
+    setDate('')
+    setNotes('')
+  }
+
+  const openCreateModal = () => {
+    setError(null)
+    resetForm()
+    setIsModalOpen(true)
+  }
+
+  const openEditModal = (transaction: OneTimeTransaction) => {
+    setError(null)
+    setEditingTransactionId(transaction.id)
+    setTransactionType(transaction.type)
+    setName(transaction.name)
+    setAmount(String(transaction.amount))
+    setDate(transaction.date.slice(0, 10))
+    setNotes(transaction.notes ?? '')
+    setIsModalOpen(true)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setIsLoading(true)
 
     try {
-      const response = await fetch('/api/admin/finances/one-time', {
-        method: 'POST',
+      const endpoint = editingTransactionId
+        ? `/api/admin/finances/one-time/${editingTransactionId}`
+        : '/api/admin/finances/one-time'
+
+      const response = await fetch(endpoint, {
+        method: editingTransactionId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
@@ -550,19 +658,15 @@ function OneTimeTransactionsSection({ transactions, onRefresh }: OneTimeTransact
 
       if (!response.ok) {
         const data = await response.json()
-        setError(data.error || 'Failed to create transaction')
+        setError(data.error || `Failed to ${editingTransactionId ? 'update' : 'create'} transaction`)
         return
       }
 
       setIsModalOpen(false)
-      setTransactionType('EXPENSE')
-      setName('')
-      setAmount('')
-      setDate('')
-      setNotes('')
+      resetForm()
       onRefresh()
     } catch (err) {
-      setError('Failed to create transaction')
+      setError(`Failed to ${editingTransactionId ? 'update' : 'create'} transaction`)
     } finally {
       setIsLoading(false)
     }
@@ -593,7 +697,7 @@ function OneTimeTransactionsSection({ transactions, onRefresh }: OneTimeTransact
         <h2 className="font-sans text-xl font-semibold tracking-tight text-gray-900">One-Time Transactions</h2>
         <button
           type="button"
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreateModal}
           className="h-11 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-700"
         >
           Add Transaction
@@ -618,6 +722,13 @@ function OneTimeTransactionsSection({ transactions, onRefresh }: OneTimeTransact
                   </div>
                   <div className="flex items-center gap-3">
                     <p className="font-medium text-green-600">{formatCurrency(transaction.amount)}</p>
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(transaction)}
+                      className="rounded-md border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-100"
+                    >
+                      Edit
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleDelete(transaction.id)}
@@ -649,6 +760,13 @@ function OneTimeTransactionsSection({ transactions, onRefresh }: OneTimeTransact
                     <p className="font-medium text-red-600">{formatCurrency(transaction.amount)}</p>
                     <button
                       type="button"
+                      onClick={() => openEditModal(transaction)}
+                      className="rounded-md border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-100"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleDelete(transaction.id)}
                       className="rounded-md border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50"
                     >
@@ -665,7 +783,9 @@ function OneTimeTransactionsSection({ transactions, onRefresh }: OneTimeTransact
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="relative w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
-            <h3 className="mb-4 text-lg font-semibold">Add Transaction</h3>
+            <h3 className="mb-4 text-lg font-semibold">
+              {editingTransactionId ? 'Edit Transaction' : 'Add Transaction'}
+            </h3>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Type</label>
@@ -724,6 +844,7 @@ function OneTimeTransactionsSection({ transactions, onRefresh }: OneTimeTransact
                   onClick={() => {
                     setIsModalOpen(false)
                     setError(null)
+                    resetForm()
                   }}
                   className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
                 >
@@ -734,7 +855,7 @@ function OneTimeTransactionsSection({ transactions, onRefresh }: OneTimeTransact
                   disabled={isLoading}
                   className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {isLoading ? 'Adding...' : 'Add'}
+                  {isLoading ? (editingTransactionId ? 'Saving...' : 'Adding...') : editingTransactionId ? 'Save' : 'Add'}
                 </button>
               </div>
             </form>
@@ -753,11 +874,34 @@ interface BudgetAllocationsSectionProps {
 
 function BudgetAllocationsSection({ allocations, totalPercentage, onRefresh }: BudgetAllocationsSectionProps) {
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingAllocationId, setEditingAllocationId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [percentage, setPercentage] = useState('')
   const [notes, setNotes] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const resetForm = () => {
+    setEditingAllocationId(null)
+    setName('')
+    setPercentage('')
+    setNotes('')
+  }
+
+  const openCreateModal = () => {
+    setError(null)
+    resetForm()
+    setIsModalOpen(true)
+  }
+
+  const openEditModal = (allocation: BudgetAllocation) => {
+    setError(null)
+    setEditingAllocationId(allocation.id)
+    setName(allocation.name)
+    setPercentage(String(allocation.percentage))
+    setNotes(allocation.notes ?? '')
+    setIsModalOpen(true)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -765,8 +909,12 @@ function BudgetAllocationsSection({ allocations, totalPercentage, onRefresh }: B
     setIsLoading(true)
 
     try {
-      const response = await fetch('/api/admin/finances/allocations', {
-        method: 'POST',
+      const endpoint = editingAllocationId
+        ? `/api/admin/finances/allocations/${editingAllocationId}`
+        : '/api/admin/finances/allocations'
+
+      const response = await fetch(endpoint, {
+        method: editingAllocationId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
@@ -777,17 +925,15 @@ function BudgetAllocationsSection({ allocations, totalPercentage, onRefresh }: B
 
       if (!response.ok) {
         const data = await response.json()
-        setError(data.error || 'Failed to create allocation')
+        setError(data.error || `Failed to ${editingAllocationId ? 'update' : 'create'} allocation`)
         return
       }
 
       setIsModalOpen(false)
-      setName('')
-      setPercentage('')
-      setNotes('')
+      resetForm()
       onRefresh()
     } catch (err) {
-      setError('Failed to create allocation')
+      setError(`Failed to ${editingAllocationId ? 'update' : 'create'} allocation`)
     } finally {
       setIsLoading(false)
     }
@@ -818,7 +964,7 @@ function BudgetAllocationsSection({ allocations, totalPercentage, onRefresh }: B
         <h2 className="font-sans text-xl font-semibold tracking-tight text-gray-900">Budget Allocations</h2>
         <button
           type="button"
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreateModal}
           className="h-11 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-700"
         >
           Add Allocation
@@ -850,13 +996,22 @@ function BudgetAllocationsSection({ allocations, totalPercentage, onRefresh }: B
                 </div>
                 <p className="mt-1 text-sm text-gray-500">{allocation.percentage}%</p>
               </div>
-              <button
-                type="button"
-                onClick={() => handleDelete(allocation.id)}
-                className="ml-4 rounded-md border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50"
-              >
-                Delete
-              </button>
+              <div className="ml-4 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => openEditModal(allocation)}
+                  className="rounded-md border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-100"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(allocation.id)}
+                  className="rounded-md border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))
         )}
@@ -865,7 +1020,9 @@ function BudgetAllocationsSection({ allocations, totalPercentage, onRefresh }: B
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="relative w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
-            <h3 className="mb-4 text-lg font-semibold">Add Budget Allocation</h3>
+            <h3 className="mb-4 text-lg font-semibold">
+              {editingAllocationId ? 'Edit Budget Allocation' : 'Add Budget Allocation'}
+            </h3>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Name</label>
@@ -905,6 +1062,7 @@ function BudgetAllocationsSection({ allocations, totalPercentage, onRefresh }: B
                   onClick={() => {
                     setIsModalOpen(false)
                     setError(null)
+                    resetForm()
                   }}
                   className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
                 >
@@ -915,7 +1073,7 @@ function BudgetAllocationsSection({ allocations, totalPercentage, onRefresh }: B
                   disabled={isLoading}
                   className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {isLoading ? 'Adding...' : 'Add'}
+                  {isLoading ? (editingAllocationId ? 'Saving...' : 'Adding...') : editingAllocationId ? 'Save' : 'Add'}
                 </button>
               </div>
             </form>
