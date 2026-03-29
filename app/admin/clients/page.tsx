@@ -61,21 +61,36 @@ export default async function ClientsPage() {
 
             <div className="divide-y divide-gray-100">
               {clients.map((client) => (
-                <div key={client.id} className="grid grid-cols-1 gap-2 px-6 py-4 md:grid-cols-5 md:gap-4">
-                  <p className="text-sm font-medium">
-                    <Link
-                      href={`/admin/clients/${client.id}`}
-                      className="text-gray-900 transition hover:text-blue-600"
-                    >
-                      {client.name}
-                    </Link>
-                  </p>
-                  <p className="text-sm text-gray-700">{client.email}</p>
-                  <ClientStatusSelect clientId={client.id} currentStatus={client.status} />
-                  <p className="text-sm text-gray-600">
-                    {new Date(client.created).toLocaleDateString()}
-                  </p>
-                  <DeleteClientButton clientId={client.id} clientName={client.name} />
+                <div key={client.id} className="grid grid-cols-1 gap-3 px-6 py-4 md:grid-cols-5 md:gap-4 md:items-center">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Name</p>
+                    <p className="text-sm font-medium">
+                      <Link
+                        href={`/admin/clients/${client.id}`}
+                        className="text-gray-900 transition hover:text-blue-600"
+                      >
+                        {client.name}
+                      </Link>
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Email</p>
+                    <p className="text-sm text-gray-700">{client.email}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Status</p>
+                    <ClientStatusSelect clientId={client.id} currentStatus={client.status} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Date Created</p>
+                    <p className="text-sm text-gray-600">
+                      {new Date(client.created).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Actions</p>
+                    <DeleteClientButton clientId={client.id} clientName={client.name} />
+                  </div>
                 </div>
               ))}
             </div>
