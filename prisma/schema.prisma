@@ -38,6 +38,7 @@ model ClientConfig {
   feature_products Boolean  @default(false)
   feature_booking  Boolean  @default(false)
   feature_gallery  Boolean  @default(false)
+  database_url     String?
   site_url         String?
   site_repo        String?
   created          DateTime @default(now())
