@@ -23,19 +23,12 @@ export default async function FinancesPage() {
 
   // Calculate net income
   const netIncome = monthlyIncome - monthlyExpenses
+  const netIncomeMonthly = netIncome
+  const netIncomeYearly = netIncome * 12
 
-  // Calculate one-time income this month
-  const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-
-  const oneTimeThisMonth = oneTimeTransactions
-    .filter(
-      (t) =>
-        t.type === 'INCOME' &&
-        t.date >= monthStart &&
-        t.date < monthEnd
-    )
+  // Calculate total one-time income
+  const oneTimeTotal = oneTimeTransactions
+    .filter((t) => t.type === 'INCOME')
     .reduce((sum, t) => sum + t.amount, 0)
 
   // Serialize dates
@@ -72,8 +65,9 @@ export default async function FinancesPage() {
       budgetAllocations={serializedAllocations}
       monthlyIncome={monthlyIncome}
       monthlyExpenses={monthlyExpenses}
-      netIncome={netIncome}
-      oneTimeThisMonth={oneTimeThisMonth}
+      netIncomeMonthly={netIncomeMonthly}
+      netIncomeYearly={netIncomeYearly}
+      oneTimeTotal={oneTimeTotal}
     />
   )
 }

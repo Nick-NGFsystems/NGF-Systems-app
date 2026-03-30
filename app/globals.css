@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Reserve scrollbar space to prevent horizontal layout shift between routes. */
+html {
+  scrollbar-gutter: stable;
+}
+
 /* ── Clerk widget: force full-width on all screen sizes ── */
 .cl-rootBox {
   width: 100% !important;

@@ -51,8 +51,9 @@ interface FinancesManagerProps {
   budgetAllocations: BudgetAllocation[]
   monthlyIncome: number
   monthlyExpenses: number
-  netIncome: number
-  oneTimeThisMonth: number
+  netIncomeMonthly: number
+  netIncomeYearly: number
+  oneTimeTotal: number
 }
 
 function formatCurrency(value: number) {
@@ -78,8 +79,9 @@ export default function FinancesManager({
   budgetAllocations,
   monthlyIncome,
   monthlyExpenses,
-  netIncome,
-  oneTimeThisMonth,
+  netIncomeMonthly,
+  netIncomeYearly,
+  oneTimeTotal,
 }: FinancesManagerProps) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
@@ -106,23 +108,45 @@ export default function FinancesManager({
         </article>
 
         <article className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <p className="text-sm text-gray-500">Monthly Expenses</p>
-          <p className="mt-3 font-sans text-3xl font-semibold tracking-tight text-slate-900">
-            {formatCurrency(monthlyExpenses)}
-          </p>
+          <p className="text-sm text-gray-500">Expenses</p>
+          <div className="mt-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-gray-500">Monthly</span>
+              <span className="font-sans text-xl font-semibold tracking-tight text-slate-900">
+                {formatCurrency(monthlyExpenses)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-gray-500">Yearly</span>
+              <span className="font-sans text-xl font-semibold tracking-tight text-slate-900">
+                {formatCurrency(monthlyExpenses * 12)}
+              </span>
+            </div>
+          </div>
         </article>
 
         <article className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
           <p className="text-sm text-gray-500">Net Income</p>
-          <p className={`mt-3 font-sans text-3xl font-semibold tracking-tight ${netIncome >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {formatCurrency(netIncome)}
-          </p>
+          <div className="mt-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-gray-500">Monthly</span>
+              <span className={`font-sans text-xl font-semibold tracking-tight ${netIncomeMonthly >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatCurrency(netIncomeMonthly)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-gray-500">Yearly</span>
+              <span className={`font-sans text-xl font-semibold tracking-tight ${netIncomeYearly >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatCurrency(netIncomeYearly)}
+              </span>
+            </div>
+          </div>
         </article>
 
         <article className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <p className="text-sm text-gray-500">One-Time This Month</p>
+          <p className="text-sm text-gray-500">One-Time Total</p>
           <p className="mt-3 font-sans text-3xl font-semibold tracking-tight text-slate-900">
-            {formatCurrency(oneTimeThisMonth)}
+            {formatCurrency(oneTimeTotal)}
           </p>
         </article>
       </div>

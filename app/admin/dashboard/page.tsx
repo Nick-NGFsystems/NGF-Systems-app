@@ -16,7 +16,6 @@ interface QuickAction {
 const quickActions: QuickAction[] = [
   { label: 'Add Client', href: '/admin/clients' },
   { label: 'New Project', href: '/admin/projects' },
-  { label: 'Log Time', href: '/admin/time' },
   { label: 'New Invoice', href: '/admin/finances' },
 ]
 
@@ -85,7 +84,7 @@ export default async function DashboardPage() {
             Quick Actions
           </h2>
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">
           {quickActions.map((action) => (
             <Link
               key={action.label}
