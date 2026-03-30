@@ -44,16 +44,30 @@ interface BudgetAllocation {
   updated: string
 }
 
+interface WorkMileage {
+  id: string
+  date: string
+  miles: number
+  rate_per_mile: number
+  purpose: string
+  notes: string | null
+  created: string
+  updated: string
+}
+
 interface FinancesManagerProps {
   recurringIncome: RecurringIncome[]
   recurringExpenses: RecurringExpense[]
   oneTimeTransactions: OneTimeTransaction[]
   budgetAllocations: BudgetAllocation[]
+  workMileage: WorkMileage[]
   monthlyIncome: number
   monthlyExpenses: number
   netIncomeMonthly: number
   netIncomeYearly: number
   oneTimeTotal: number
+  monthlyMileageTotal: number
+  yearlyMileageTotal: number
 }
 
 function formatCurrency(value: number) {
@@ -77,16 +91,20 @@ export default function FinancesManager({
   recurringExpenses,
   oneTimeTransactions,
   budgetAllocations,
+  workMileage,
   monthlyIncome,
   monthlyExpenses,
   netIncomeMonthly,
   netIncomeYearly,
   oneTimeTotal,
+  monthlyMileageTotal,
+  yearlyMileageTotal,
 }: FinancesManagerProps) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
 
   const totalAllocationPercentage = budgetAllocations.reduce((sum, alloc) => sum + alloc.percentage, 0)
+  const recurringMonthlyExpenses = monthlyExpenses - monthlyMileageTotal
 
   return (
     <section className="space-y-8">
@@ -110,6 +128,18 @@ export default function FinancesManager({
         <article className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
           <p className="text-sm text-gray-500">Expenses</p>
           <div className="mt-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-gray-500">Recurring</span>
+              <span className="font-sans text-xl font-semibold tracking-tight text-slate-900">
+                {formatCurrency(recurringMonthlyExpenses)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-gray-500">Mileage (Month)</span>
+              <span className="font-sans text-xl font-semibold tracking-tight text-slate-900">
+                {formatCurrency(monthlyMileageTotal)}
+              </span>
+            </div>
             <div className="flex items-center justify-between">
               <span className="text-xs uppercase tracking-wide text-gray-500">Monthly</span>
               <span className="font-sans text-xl font-semibold tracking-tight text-slate-900">
@@ -159,6 +189,14 @@ export default function FinancesManager({
 
       {/* One-Time Transactions Section */}
       <OneTimeTransactionsSection transactions={oneTimeTransactions} onRefresh={() => router.refresh()} />
+
+      {/* Work Mileage Section */}
+      <WorkMileageSection
+        mileageEntries={workMileage}
+        monthlyMileageTotal={monthlyMileageTotal}
+        yearlyMileageTotal={yearlyMileageTotal}
+        onRefresh={() => router.refresh()}
+      />
 
       {/* Budget Allocations Section */}
       <BudgetAllocationsSection allocations={budgetAllocations} totalPercentage={totalAllocationPercentage} onRefresh={() => router.refresh()} />
@@ -880,6 +918,253 @@ function OneTimeTransactionsSection({ transactions, onRefresh }: OneTimeTransact
                   className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
                 >
                   {isLoading ? (editingTransactionId ? 'Saving...' : 'Adding...') : editingTransactionId ? 'Save' : 'Add'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+interface WorkMileageSectionProps {
+  mileageEntries: WorkMileage[]
+  monthlyMileageTotal: number
+  yearlyMileageTotal: number
+  onRefresh: () => void
+}
+
+function WorkMileageSection({ mileageEntries, monthlyMileageTotal, yearlyMileageTotal, onRefresh }: WorkMileageSectionProps) {
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingMileageId, setEditingMileageId] = useState<string | null>(null)
+  const [date, setDate] = useState('')
+  const [miles, setMiles] = useState('')
+  const [ratePerMile, setRatePerMile] = useState('0.67')
+  const [purpose, setPurpose] = useState('')
+  const [notes, setNotes] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const resetForm = () => {
+    setEditingMileageId(null)
+    setDate('')
+    setMiles('')
+    setRatePerMile('0.67')
+    setPurpose('')
+    setNotes('')
+  }
+
+  const openCreateModal = () => {
+    setError(null)
+    resetForm()
+    setDate(new Date().toISOString().slice(0, 10))
+    setIsModalOpen(true)
+  }
+
+  const openEditModal = (entry: WorkMileage) => {
+    setError(null)
+    setEditingMileageId(entry.id)
+    setDate(entry.date.slice(0, 10))
+    setMiles(String(entry.miles))
+    setRatePerMile(String(entry.rate_per_mile))
+    setPurpose(entry.purpose)
+    setNotes(entry.notes ?? '')
+    setIsModalOpen(true)
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    setIsLoading(true)
+
+    try {
+      const endpoint = editingMileageId
+        ? `/api/admin/finances/work-mileage/${editingMileageId}`
+        : '/api/admin/finances/work-mileage'
+
+      const response = await fetch(endpoint, {
+        method: editingMileageId ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date,
+          miles: Number(miles),
+          ratePerMile: Number(ratePerMile),
+          purpose,
+          notes: notes || null,
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        setError(data.error || `Failed to ${editingMileageId ? 'update' : 'create'} mileage entry`)
+        return
+      }
+
+      setIsModalOpen(false)
+      resetForm()
+      onRefresh()
+    } catch (_err) {
+      setError(`Failed to ${editingMileageId ? 'update' : 'create'} mileage entry`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this mileage entry?')) return
+
+    try {
+      const response = await fetch(`/api/admin/finances/work-mileage/${id}`, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        onRefresh()
+      }
+    } catch (_err) {
+      console.error('Failed to delete mileage entry')
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="font-sans text-xl font-semibold tracking-tight text-gray-900">Work Mileage</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Month: {formatCurrency(monthlyMileageTotal)} • Year: {formatCurrency(yearlyMileageTotal)}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={openCreateModal}
+          className="h-11 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-700"
+        >
+          Add Mileage
+        </button>
+      </div>
+
+      {error && <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+
+      <div className="mt-5 space-y-3">
+        {mileageEntries.length === 0 ? (
+          <p className="py-8 text-center text-sm text-gray-500">No mileage entries yet.</p>
+        ) : (
+          mileageEntries.map((entry) => {
+            const reimbursableAmount = entry.miles * entry.rate_per_mile
+
+            return (
+              <div key={entry.id} className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-medium text-gray-900">{entry.purpose}</p>
+                    <p className="text-sm text-gray-500">
+                      {formatDate(entry.date)} • {entry.miles.toFixed(1)} miles @ {formatCurrency(entry.rate_per_mile)}/mile
+                    </p>
+                    {entry.notes && <p className="mt-1 text-sm text-gray-500">{entry.notes}</p>}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <p className="font-medium text-slate-900">{formatCurrency(reimbursableAmount)}</p>
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(entry)}
+                      className="rounded-md border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-100"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(entry.id)}
+                      className="rounded-md border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="relative w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
+            <h3 className="mb-4 text-lg font-semibold">{editingMileageId ? 'Edit Mileage Entry' : 'Add Mileage Entry'}</h3>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Date</label>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  required
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Miles</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={miles}
+                  onChange={(e) => setMiles(e.target.value)}
+                  required
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Rate Per Mile ($)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  value={ratePerMile}
+                  onChange={(e) => setRatePerMile(e.target.value)}
+                  required
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Purpose</label>
+                <input
+                  type="text"
+                  value={purpose}
+                  onChange={(e) => setPurpose(e.target.value)}
+                  required
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="Client meeting, site visit, supply run..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Notes</label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsModalOpen(false)
+                    setError(null)
+                    resetForm()
+                  }}
+                  className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {isLoading ? (editingMileageId ? 'Saving...' : 'Adding...') : editingMileageId ? 'Save' : 'Add'}
                 </button>
               </div>
             </form>

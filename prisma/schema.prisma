@@ -123,6 +123,19 @@ model OneTimeTransaction {
   @@map("one_time_transactions")
 }
 
+model WorkMileage {
+  id            String   @id @default(cuid())
+  date          DateTime
+  miles         Float
+  rate_per_mile Float
+  purpose       String
+  notes         String?
+  created       DateTime @default(now())
+  updated       DateTime @updatedAt
+
+  @@map("work_mileage")
+}
+
 model BudgetAllocation {
   id         String   @id @default(cuid())
   name       String
