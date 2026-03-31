@@ -16,6 +16,7 @@ interface CreateClientBody {
 
 export async function POST(request: Request) {
   let createdClerkUserId: string | null = null
+  let createdInvitationId: string | null = null
   let resultMessage = 'Client created'
 
   try {
@@ -63,14 +64,26 @@ export async function POST(request: Request) {
         if (sendSetupEmail) {
           // Send an application invitation only when explicitly requested by admin.
           // The client creates their password through Clerk's invite flow.
-          await clerk.invitations.createInvitation({
-            emailAddress: email,
-            publicMetadata: { role: 'client' },
-            notify: true,
-            redirectUrl: signUpRedirectUrl,
-            templateSlug: 'invitation',
-          })
-          resultMessage = 'Client created and setup email sent'
+          try {
+            const invitation = await clerk.invitations.createInvitation({
+              emailAddress: email,
+              publicMetadata: { role: 'client' },
+              notify: true,
+              redirectUrl: signUpRedirectUrl,
+              templateSlug: 'invitation',
+            })
+            createdInvitationId = invitation.id
+            resultMessage = 'Client created and setup email sent'
+          } catch (error: unknown) {
+            const maybeError = error as { errors?: Array<{ message?: string }> }
+            const detail = maybeError.errors?.[0]?.message?.toLowerCase() ?? ''
+
+            if (detail.includes('duplicate invitation')) {
+              resultMessage = 'Client created. A setup invitation is already pending for this email.'
+            } else {
+              throw error
+            }
+          }
         } else {
           // Create the Clerk user without sending any setup email.
           // Admin can choose to notify the client later.
@@ -120,6 +133,15 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, data: client, message: resultMessage })
   } catch (error: unknown) {
+    if (createdInvitationId) {
+      try {
+        const clerk = await clerkClient()
+        await clerk.invitations.revokeInvitation(createdInvitationId)
+      } catch {
+        // Ignore cleanup failures so we can still return the root API error.
+      }
+    }
+
     if (createdClerkUserId) {
       try {
         const clerk = await clerkClient()
