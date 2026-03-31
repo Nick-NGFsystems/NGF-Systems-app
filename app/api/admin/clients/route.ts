@@ -16,6 +16,7 @@ interface CreateClientBody {
 
 export async function POST(request: Request) {
   let createdClerkUserId: string | null = null
+  let resultMessage = 'Client created'
 
   try {
     const { sessionClaims } = await auth()
@@ -43,6 +44,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Invalid email address' }, { status: 400 })
     }
 
+    if (sendSetupEmail && !email) {
+      return NextResponse.json(
+        { success: false, error: 'Email is required to send a setup email' },
+        { status: 400 }
+      )
+    }
+
     if (email) {
       const existing = await db.client.findFirst({ where: { email }, select: { id: true } })
       if (existing) {
@@ -62,6 +70,7 @@ export async function POST(request: Request) {
             redirectUrl: signUpRedirectUrl,
             templateSlug: 'invitation',
           })
+          resultMessage = 'Client created and setup email sent'
         } else {
           // Create the Clerk user without sending any setup email.
           // Admin can choose to notify the client later.
@@ -70,6 +79,7 @@ export async function POST(request: Request) {
             publicMetadata: { role: 'client' },
           })
           createdClerkUserId = createdUser.id
+          resultMessage = 'Client created and Clerk account linked'
         }
       } catch (error: unknown) {
         const maybeError = error as { errors?: Array<{ message?: string }> }
@@ -108,7 +118,7 @@ export async function POST(request: Request) {
       return createdClient
     })
 
-    return NextResponse.json({ success: true, data: client })
+    return NextResponse.json({ success: true, data: client, message: resultMessage })
   } catch (error: unknown) {
     if (createdClerkUserId) {
       try {

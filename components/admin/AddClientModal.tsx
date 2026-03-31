@@ -14,6 +14,7 @@ interface AddClientModalProps {
 interface ApiResponse {
   success: boolean
   error?: string
+  message?: string
 }
 
 export default function AddClientModal({
@@ -47,6 +48,12 @@ export default function AddClientModal({
     event.preventDefault()
     setIsSubmitting(true)
     setError(null)
+
+    if (sendSetupEmail && !email.trim()) {
+      setError('Email is required to send a setup email')
+      setIsSubmitting(false)
+      return
+    }
 
     try {
       const response = await fetch('/api/admin/clients', {
