@@ -23,7 +23,25 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     const { id } = await context.params
     const body = await request.json()
-    const { name, amount, frequency, category, notes } = body
+    const { name, amount, frequency, category, startDate, endDate, notes } = body
+
+    const parsedStartDate = startDate !== undefined ? new Date(startDate) : undefined
+    const parsedEndDate = endDate !== undefined ? (endDate ? new Date(endDate) : null) : undefined
+
+    if (parsedStartDate !== undefined && !Number.isFinite(parsedStartDate.getTime())) {
+      return NextResponse.json({ success: false, error: 'Start date is invalid' }, { status: 400 })
+    }
+
+    if (parsedEndDate !== undefined && parsedEndDate !== null && !Number.isFinite(parsedEndDate.getTime())) {
+      return NextResponse.json({ success: false, error: 'End date is invalid' }, { status: 400 })
+    }
+
+    if (parsedStartDate !== undefined && parsedEndDate !== undefined && parsedEndDate !== null && parsedEndDate < parsedStartDate) {
+      return NextResponse.json(
+        { success: false, error: 'End date must be after start date' },
+        { status: 400 }
+      )
+    }
 
     const expense = await db.recurringExpense.update({
       where: { id },
@@ -32,6 +50,8 @@ export async function PATCH(request: Request, context: RouteContext) {
         ...(amount !== undefined && { amount: parseFloat(amount) }),
         ...(frequency && { frequency }),
         ...(category && { category }),
+        ...(parsedStartDate !== undefined && { start_date: parsedStartDate }),
+        ...(parsedEndDate !== undefined && { end_date: parsedEndDate }),
         ...(notes !== undefined && { notes: notes?.trim() || null }),
       },
     })

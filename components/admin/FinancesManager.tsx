@@ -19,6 +19,8 @@ interface RecurringExpense {
   amount: number
   frequency: string
   category: string
+  start_date: string
+  end_date: string | null
   notes: string | null
   created: string
   updated: string
@@ -84,6 +86,29 @@ function formatDate(dateString: string) {
     month: 'short',
     day: 'numeric',
   })
+}
+
+function getMonthStart(year: number, monthIndex: number) {
+  return new Date(year, monthIndex, 1)
+}
+
+function getMonthEnd(year: number, monthIndex: number) {
+  return new Date(year, monthIndex + 1, 0)
+}
+
+function isRecurringExpenseActiveInMonth(
+  expense: RecurringExpense,
+  year: number,
+  monthIndex: number
+) {
+  const monthStart = getMonthStart(year, monthIndex)
+  const monthEnd = getMonthEnd(year, monthIndex)
+  const startDate = new Date(expense.start_date)
+  const endDate = expense.end_date ? new Date(expense.end_date) : null
+
+  if (startDate > monthEnd) return false
+  if (endDate && endDate < monthStart) return false
+  return true
 }
 
 export default function FinancesManager({
@@ -196,6 +221,13 @@ export default function FinancesManager({
         monthlyMileageTotal={monthlyMileageTotal}
         yearlyMileageTotal={yearlyMileageTotal}
         onRefresh={() => router.refresh()}
+      />
+
+      {/* Expense Reporting Section */}
+      <ExpenseReportsSection
+        recurringExpenses={recurringExpenses}
+        oneTimeTransactions={oneTimeTransactions}
+        mileageEntries={workMileage}
       />
 
       {/* Budget Allocations Section */}
@@ -432,6 +464,8 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
   const [amount, setAmount] = useState('')
   const [frequency, setFrequency] = useState('YEARLY')
   const [category, setCategory] = useState('OTHER')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [notes, setNotes] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -442,6 +476,8 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
     setAmount('')
     setFrequency('YEARLY')
     setCategory('OTHER')
+    setStartDate('')
+    setEndDate('')
     setNotes('')
   }
 
@@ -458,9 +494,13 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
     setAmount(String(expense.amount))
     setFrequency(expense.frequency)
     setCategory(expense.category)
+    setStartDate(expense.start_date.slice(0, 10))
+    setEndDate(expense.end_date ? expense.end_date.slice(0, 10) : '')
     setNotes(expense.notes ?? '')
     setIsModalOpen(true)
   }
+
+  const todayIso = new Date().toISOString().slice(0, 10)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -480,6 +520,8 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
           amount: Number(amount),
           frequency,
           category,
+          startDate: startDate || todayIso,
+          endDate: endDate || null,
           notes: notes || null,
         }),
       })
@@ -541,6 +583,9 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
                 <p className="font-medium text-gray-900">{expense.name}</p>
                 <p className="text-sm text-gray-500">
                   {formatCurrency(expense.amount)} {expense.frequency === 'YEARLY' ? 'per year' : 'per month'} • {expense.category}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Active: {formatDate(expense.start_date)} - {expense.end_date ? formatDate(expense.end_date) : 'No end date'}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -618,6 +663,25 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
                 </select>
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700">Start Date</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  required
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">End Date (Optional)</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700">Notes</label>
                 <textarea
                   value={notes}
@@ -650,6 +714,175 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
           </div>
         </div>
       )}
+    </section>
+  )
+}
+
+interface ExpenseReportsSectionProps {
+  recurringExpenses: RecurringExpense[]
+  oneTimeTransactions: OneTimeTransaction[]
+  mileageEntries: WorkMileage[]
+}
+
+function ExpenseReportsSection({ recurringExpenses, oneTimeTransactions, mileageEntries }: ExpenseReportsSectionProps) {
+  const currentYear = new Date().getFullYear()
+  const [year, setYear] = useState(currentYear)
+  const [startMonth, setStartMonth] = useState(1)
+  const [endMonth, setEndMonth] = useState(12)
+
+  const monthCount = Math.max(0, endMonth - startMonth + 1)
+
+  const recurringTotal = recurringExpenses.reduce((sum, expense) => {
+    let activeMonths = 0
+
+    for (let month = startMonth - 1; month <= endMonth - 1; month++) {
+      if (isRecurringExpenseActiveInMonth(expense, year, month)) {
+        activeMonths += 1
+      }
+    }
+
+    if (activeMonths === 0) return sum
+
+    const monthlyEquivalent = expense.frequency === 'YEARLY' ? expense.amount / 12 : expense.amount
+    return sum + monthlyEquivalent * activeMonths
+  }, 0)
+
+  const oneTimeExpenseTotal = oneTimeTransactions
+    .filter((transaction) => {
+      if (transaction.type !== 'EXPENSE') return false
+      const date = new Date(transaction.date)
+      if (date.getFullYear() !== year) return false
+      const month = date.getMonth() + 1
+      return month >= startMonth && month <= endMonth
+    })
+    .reduce((sum, transaction) => sum + transaction.amount, 0)
+
+  const mileageTotal = mileageEntries
+    .filter((entry) => {
+      const date = new Date(entry.date)
+      if (date.getFullYear() !== year) return false
+      const month = date.getMonth() + 1
+      return month >= startMonth && month <= endMonth
+    })
+    .reduce((sum, entry) => sum + entry.miles * entry.rate_per_mile, 0)
+
+  const grandTotal = recurringTotal + oneTimeExpenseTotal + mileageTotal
+
+  const monthlyAverage = monthCount > 0 ? grandTotal / monthCount : 0
+
+  const monthOptions = [
+    { value: 1, label: 'Jan' },
+    { value: 2, label: 'Feb' },
+    { value: 3, label: 'Mar' },
+    { value: 4, label: 'Apr' },
+    { value: 5, label: 'May' },
+    { value: 6, label: 'Jun' },
+    { value: 7, label: 'Jul' },
+    { value: 8, label: 'Aug' },
+    { value: 9, label: 'Sep' },
+    { value: 10, label: 'Oct' },
+    { value: 11, label: 'Nov' },
+    { value: 12, label: 'Dec' },
+  ]
+
+  const availableYears = Array.from(
+    new Set([
+      currentYear,
+      ...oneTimeTransactions.map((t) => new Date(t.date).getFullYear()),
+      ...mileageEntries.map((m) => new Date(m.date).getFullYear()),
+      ...recurringExpenses.map((e) => new Date(e.start_date).getFullYear()),
+      ...recurringExpenses
+        .filter((e) => e.end_date)
+        .map((e) => new Date(e.end_date as string).getFullYear()),
+    ])
+  ).sort((a, b) => b - a)
+
+  return (
+    <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="font-sans text-xl font-semibold tracking-tight text-gray-900">Expense Reports</h2>
+          <p className="text-sm text-gray-500">Filter by year and month range for tax and write-off tracking.</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Year</label>
+          <select
+            value={year}
+            onChange={(e) => setYear(Number(e.target.value))}
+            className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
+          >
+            {availableYears.map((yearOption) => (
+              <option key={yearOption} value={yearOption}>
+                {yearOption}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Start Month</label>
+          <select
+            value={startMonth}
+            onChange={(e) => {
+              const value = Number(e.target.value)
+              setStartMonth(value)
+              if (value > endMonth) setEndMonth(value)
+            }}
+            className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
+          >
+            {monthOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700">End Month</label>
+          <select
+            value={endMonth}
+            onChange={(e) => {
+              const value = Number(e.target.value)
+              setEndMonth(value)
+              if (value < startMonth) setStartMonth(value)
+            }}
+            className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
+          >
+            {monthOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <article className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-gray-500">Recurring (Date-Aware)</p>
+          <p className="mt-2 font-sans text-2xl font-semibold tracking-tight text-slate-900">{formatCurrency(recurringTotal)}</p>
+        </article>
+
+        <article className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-gray-500">One-Time Expenses</p>
+          <p className="mt-2 font-sans text-2xl font-semibold tracking-tight text-slate-900">{formatCurrency(oneTimeExpenseTotal)}</p>
+        </article>
+
+        <article className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-gray-500">Mileage Expenses</p>
+          <p className="mt-2 font-sans text-2xl font-semibold tracking-tight text-slate-900">{formatCurrency(mileageTotal)}</p>
+        </article>
+
+        <article className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+          <p className="text-xs uppercase tracking-wide text-blue-700">Total Expenses</p>
+          <p className="mt-2 font-sans text-2xl font-semibold tracking-tight text-blue-900">{formatCurrency(grandTotal)}</p>
+          <p className="mt-1 text-xs text-blue-700">Avg per month: {formatCurrency(monthlyAverage)}</p>
+        </article>
+      </div>
     </section>
   )
 }

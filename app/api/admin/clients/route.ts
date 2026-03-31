@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth, clerkClient } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
@@ -11,9 +11,12 @@ interface CreateClientBody {
   contact_names?: string
   notes?: string
   status?: ClientStatus
+  send_setup_email?: boolean
 }
 
 export async function POST(request: Request) {
+  let createdClerkUserId: string | null = null
+
   try {
     const { sessionClaims } = await auth()
     const role = (sessionClaims?.metadata as { role?: string } | undefined)?.role
@@ -29,6 +32,7 @@ export async function POST(request: Request) {
     const contactNames = body.contact_names?.trim() || null
     const notes = body.notes?.trim() || null
     const status: ClientStatus = body.status ?? 'ACTIVE'
+    const sendSetupEmail = body.send_setup_email === true
 
     if (!['ACTIVE', 'LEAD'].includes(status)) {
       return NextResponse.json({ success: false, error: 'Invalid status value' }, { status: 400 })
@@ -43,6 +47,39 @@ export async function POST(request: Request) {
       if (existing) {
         return NextResponse.json({ success: false, error: 'A client with this email already exists' }, { status: 400 })
       }
+
+      try {
+        const clerk = await clerkClient()
+
+        if (sendSetupEmail) {
+          // Send an application invitation only when explicitly requested by admin.
+          // The client creates their password through Clerk's invite flow.
+          await clerk.invitations.createInvitation({
+            emailAddress: email,
+            publicMetadata: { role: 'client' },
+            notify: true,
+            ignoreExisting: true,
+          })
+        } else {
+          // Create the Clerk user without sending any setup email.
+          // Admin can choose to notify the client later.
+          const createdUser = await clerk.users.createUser({
+            emailAddress: [email],
+            publicMetadata: { role: 'client' },
+          })
+          createdClerkUserId = createdUser.id
+        }
+      } catch (error: unknown) {
+        const maybeError = error as { errors?: Array<{ message?: string }> }
+        const detail = maybeError.errors?.[0]?.message
+        return NextResponse.json(
+          {
+            success: false,
+            error: detail ?? 'Unable to create Clerk account for this client',
+          },
+          { status: 400 }
+        )
+      }
     }
 
     const client = await db.$transaction(async (tx) => {
@@ -50,6 +87,7 @@ export async function POST(request: Request) {
         data: {
           name,
           email,
+          clerk_user_id: createdClerkUserId,
           phone,
           contact_names: contactNames,
           notes,
@@ -70,6 +108,15 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, data: client })
   } catch (error: unknown) {
+    if (createdClerkUserId) {
+      try {
+        const clerk = await clerkClient()
+        await clerk.users.deleteUser(createdClerkUserId)
+      } catch {
+        // Ignore cleanup failures so we can still return the root API error.
+      }
+    }
+
     return NextResponse.json({ success: false, error: 'Failed to create client' }, { status: 500 })
   }
 }

@@ -103,6 +103,8 @@ model RecurringExpense {
   amount    Float
   frequency String   @default("MONTHLY")
   category  String   @default("OTHER")
+  start_date DateTime @default(now())
+  end_date   DateTime?
   notes     String?
   created   DateTime @default(now())
   updated   DateTime @updatedAt

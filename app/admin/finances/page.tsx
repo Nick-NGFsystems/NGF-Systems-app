@@ -3,6 +3,25 @@ import FinancesManager from '@/components/admin/FinancesManager'
 
 export const dynamic = 'force-dynamic'
 
+function getMonthBounds(date: Date) {
+  const year = date.getFullYear()
+  const month = date.getMonth()
+  const monthStart = new Date(year, month, 1)
+  const monthEnd = new Date(year, month + 1, 0)
+  return { monthStart, monthEnd }
+}
+
+function isExpenseActiveInMonth(
+  startDate: Date,
+  endDate: Date | null,
+  monthStart: Date,
+  monthEnd: Date
+) {
+  if (startDate > monthEnd) return false
+  if (endDate && endDate < monthStart) return false
+  return true
+}
+
 export default async function FinancesPage() {
   const [recurringIncome, recurringExpenses, oneTimeTransactions, budgetAllocations, workMileage] = await Promise.all([
     db.recurringIncome.findMany({ orderBy: { created: 'desc' } }),
@@ -17,12 +36,18 @@ export default async function FinancesPage() {
     return sum + (item.frequency === 'YEARLY' ? item.amount / 12 : item.amount)
   }, 0)
 
-  // Calculate monthly expenses
+  const now = new Date()
+  const { monthStart, monthEnd } = getMonthBounds(now)
+
+  // Calculate monthly expenses for active recurring expenses in the current month.
   const monthlyExpenses = recurringExpenses.reduce((sum, item) => {
+    if (!isExpenseActiveInMonth(item.start_date, item.end_date, monthStart, monthEnd)) {
+      return sum
+    }
+
     return sum + (item.frequency === 'YEARLY' ? item.amount / 12 : item.amount)
   }, 0)
 
-  const now = new Date()
   const currentMonth = now.getMonth()
   const currentYear = now.getFullYear()
 
@@ -64,6 +89,8 @@ export default async function FinancesPage() {
 
   const serializedExpenses = recurringExpenses.map((item) => ({
     ...item,
+    start_date: item.start_date.toISOString(),
+    end_date: item.end_date ? item.end_date.toISOString() : null,
     created: item.created.toISOString(),
     updated: item.updated.toISOString(),
   }))

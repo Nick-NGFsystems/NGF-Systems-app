@@ -28,6 +28,7 @@ export default function AddClientModal({
   const [phone, setPhone] = useState('')
   const [contactNames, setContactNames] = useState('')
   const [notes, setNotes] = useState('')
+  const [sendSetupEmail, setSendSetupEmail] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -38,6 +39,7 @@ export default function AddClientModal({
     setPhone('')
     setContactNames('')
     setNotes('')
+    setSendSetupEmail(false)
     setError(null)
   }
 
@@ -59,6 +61,7 @@ export default function AddClientModal({
           contact_names: contactNames,
           notes,
           status: defaultStatus,
+          send_setup_email: sendSetupEmail,
         }),
       })
 
@@ -118,7 +121,7 @@ export default function AddClientModal({
 
               <div>
                 <label htmlFor="client-email" className="text-sm font-medium text-gray-700">
-                  Email (optional)
+                  Email (used for portal login account)
                 </label>
                 <input
                   id="client-email"
@@ -128,6 +131,21 @@ export default function AddClientModal({
                   className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-900 outline-none transition focus:border-blue-600"
                 />
               </div>
+
+              <label className="flex items-start gap-3 rounded-lg border border-gray-200 p-3">
+                <input
+                  type="checkbox"
+                  checked={sendSetupEmail}
+                  onChange={(event) => setSendSetupEmail(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-gray-700">Send setup email now</span>
+                  <span className="block text-xs text-gray-500">
+                    Off by default. Turn on only when you want Clerk to email the client account setup invite.
+                  </span>
+                </span>
+              </label>
 
               <div>
                 <label htmlFor="client-phone" className="text-sm font-medium text-gray-700">
