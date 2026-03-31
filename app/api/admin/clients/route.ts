@@ -33,6 +33,7 @@ export async function POST(request: Request) {
     const notes = body.notes?.trim() || null
     const status: ClientStatus = body.status ?? 'ACTIVE'
     const sendSetupEmail = body.send_setup_email === true
+    const signUpRedirectUrl = new URL('/sign-up', request.url).toString()
 
     if (!['ACTIVE', 'LEAD'].includes(status)) {
       return NextResponse.json({ success: false, error: 'Invalid status value' }, { status: 400 })
@@ -58,7 +59,8 @@ export async function POST(request: Request) {
             emailAddress: email,
             publicMetadata: { role: 'client' },
             notify: true,
-            ignoreExisting: true,
+            redirectUrl: signUpRedirectUrl,
+            templateSlug: 'invitation',
           })
         } else {
           // Create the Clerk user without sending any setup email.
