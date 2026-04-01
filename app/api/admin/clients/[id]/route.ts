@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth, clerkClient } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { CLIENT_STATUSES } from '@/lib/client-status'
@@ -41,11 +41,78 @@ export async function DELETE(_request: Request, context: RouteContext) {
 
     const existingClient = await db.client.findUnique({
       where: { id: clientId },
-      select: { id: true },
+      select: { id: true, email: true, clerk_user_id: true },
     })
 
     if (!existingClient) {
       return NextResponse.json({ success: false, error: 'Client not found' }, { status: 404 })
+    }
+
+    const clerk = await clerkClient()
+
+    if (existingClient.clerk_user_id) {
+      try {
+        const linkedUser = await clerk.users.getUser(existingClient.clerk_user_id)
+        const linkedRole = (linkedUser.publicMetadata as { role?: string } | undefined)?.role
+
+        if (linkedRole && linkedRole !== 'client') {
+          return NextResponse.json(
+            { success: false, error: 'Linked Clerk user is not a client account' },
+            { status: 409 }
+          )
+        }
+
+        await clerk.users.deleteUser(existingClient.clerk_user_id)
+      } catch {
+        return NextResponse.json(
+          { success: false, error: 'Failed to delete linked Clerk user' },
+          { status: 502 }
+        )
+      }
+    }
+
+    if (existingClient.email) {
+      try {
+        if (!existingClient.clerk_user_id) {
+          const users = await clerk.users.getUserList({
+            emailAddress: [existingClient.email],
+            limit: 1,
+          })
+
+          if (users.data.length > 0) {
+            const user = users.data[0]
+            const userRole = (user.publicMetadata as { role?: string } | undefined)?.role
+
+            if (!userRole || userRole === 'client') {
+              await clerk.users.deleteUser(user.id)
+            } else {
+              return NextResponse.json(
+                { success: false, error: 'Email is linked to a non-client Clerk account' },
+                { status: 409 }
+              )
+            }
+          }
+        }
+
+        const invitations = await clerk.invitations.getInvitationList({
+          query: existingClient.email,
+          status: 'pending',
+          limit: 100,
+        })
+
+        const matchingInvites = invitations.data.filter(
+          (item) => item.emailAddress.toLowerCase() === existingClient.email?.toLowerCase()
+        )
+
+        await Promise.all(
+          matchingInvites.map((invite) => clerk.invitations.revokeInvitation(invite.id))
+        )
+      } catch {
+        return NextResponse.json(
+          { success: false, error: 'Failed to revoke pending Clerk invitations' },
+          { status: 502 }
+        )
+      }
     }
 
     await db.client.delete({
@@ -101,7 +168,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     const existingClient = await db.client.findUnique({
       where: { id: clientId },
-      select: { id: true },
+      select: { id: true, email: true, clerk_user_id: true },
     })
 
     if (!existingClient) {
@@ -125,7 +192,53 @@ export async function PATCH(request: Request, context: RouteContext) {
       contact_names?: string | null
       notes?: string | null
       status?: string
+      clerk_user_id?: string | null
     } = {}
+
+    if (hasEmail && email !== existingClient.email) {
+      const clerk = await clerkClient()
+
+      if (existingClient.clerk_user_id) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Cannot change email for a linked Clerk account from this screen',
+          },
+          { status: 400 }
+        )
+      }
+
+      if (email) {
+        const users = await clerk.users.getUserList({
+          emailAddress: [email],
+          limit: 1,
+        })
+
+        if (users.data.length > 0) {
+          const user = users.data[0]
+          const role = (user.publicMetadata as { role?: string } | undefined)?.role
+
+          if (role && role !== 'client') {
+            return NextResponse.json(
+              {
+                success: false,
+                error: 'This email is already used by a non-client Clerk account',
+              },
+              { status: 400 }
+            )
+          }
+
+          await clerk.users.updateUserMetadata(user.id, {
+            publicMetadata: { role: 'client' },
+          })
+          data.clerk_user_id = user.id
+        } else {
+          data.clerk_user_id = null
+        }
+      } else {
+        data.clerk_user_id = null
+      }
+    }
 
     if (hasName) data.name = name
     if (hasEmail) data.email = email

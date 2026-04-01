@@ -60,39 +60,75 @@ export async function POST(request: Request) {
 
       try {
         const clerk = await clerkClient()
+        let existingClerkUserId: string | null = null
+
+        const existingUsers = await clerk.users.getUserList({
+          emailAddress: [email],
+          limit: 1,
+        })
+
+        if (existingUsers.data.length > 0) {
+          const existingUser = existingUsers.data[0]
+          const existingRole = (existingUser.publicMetadata as { role?: string } | undefined)?.role
+
+          if (existingRole && existingRole !== 'client') {
+            return NextResponse.json(
+              {
+                success: false,
+                error: 'This email is already used by a non-client Clerk account',
+              },
+              { status: 400 }
+            )
+          }
+
+          existingClerkUserId = existingUser.id
+          await clerk.users.updateUserMetadata(existingClerkUserId, {
+            publicMetadata: { role: 'client' },
+          })
+        }
 
         if (sendSetupEmail) {
           // Send an application invitation only when explicitly requested by admin.
           // The client creates their password through Clerk's invite flow.
-          try {
-            const invitation = await clerk.invitations.createInvitation({
-              emailAddress: email,
-              publicMetadata: { role: 'client' },
-              notify: true,
-              redirectUrl: signUpRedirectUrl,
-              templateSlug: 'invitation',
-            })
-            createdInvitationId = invitation.id
-            resultMessage = 'Client created and setup email sent'
-          } catch (error: unknown) {
-            const maybeError = error as { errors?: Array<{ message?: string }> }
-            const detail = maybeError.errors?.[0]?.message?.toLowerCase() ?? ''
+          if (existingClerkUserId) {
+            createdClerkUserId = existingClerkUserId
+            resultMessage = 'Client created and linked to existing Clerk user'
+          } else {
+            try {
+              const invitation = await clerk.invitations.createInvitation({
+                emailAddress: email,
+                publicMetadata: { role: 'client' },
+                notify: true,
+                redirectUrl: signUpRedirectUrl,
+                templateSlug: 'invitation',
+              })
+              createdInvitationId = invitation.id
+              resultMessage = 'Client created and setup email sent'
+            } catch (error: unknown) {
+              const maybeError = error as { errors?: Array<{ message?: string }> }
+              const detail = maybeError.errors?.[0]?.message?.toLowerCase() ?? ''
 
-            if (detail.includes('duplicate invitation')) {
-              resultMessage = 'Client created. A setup invitation is already pending for this email.'
-            } else {
-              throw error
+              if (detail.includes('duplicate invitation')) {
+                resultMessage = 'Client created. A setup invitation is already pending for this email.'
+              } else {
+                throw error
+              }
             }
           }
         } else {
           // Create the Clerk user without sending any setup email.
           // Admin can choose to notify the client later.
-          const createdUser = await clerk.users.createUser({
-            emailAddress: [email],
-            publicMetadata: { role: 'client' },
-          })
-          createdClerkUserId = createdUser.id
-          resultMessage = 'Client created and Clerk account linked'
+          if (existingClerkUserId) {
+            createdClerkUserId = existingClerkUserId
+            resultMessage = 'Client created and linked to existing Clerk user'
+          } else {
+            const createdUser = await clerk.users.createUser({
+              emailAddress: [email],
+              publicMetadata: { role: 'client' },
+            })
+            createdClerkUserId = createdUser.id
+            resultMessage = 'Client created and Clerk account linked'
+          }
         }
       } catch (error: unknown) {
         const maybeError = error as { errors?: Array<{ message?: string }> }

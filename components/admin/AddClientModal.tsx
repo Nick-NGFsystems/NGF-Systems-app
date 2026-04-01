@@ -122,7 +122,7 @@ export default function AddClientModal({
                   type="text"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-900 outline-none transition focus:border-blue-600"
+                  className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-base text-gray-900 outline-none transition focus:border-blue-600 sm:text-sm"
                 />
               </div>
 
@@ -135,7 +135,7 @@ export default function AddClientModal({
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-900 outline-none transition focus:border-blue-600"
+                  className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-base text-gray-900 outline-none transition focus:border-blue-600 sm:text-sm"
                 />
               </div>
 
@@ -163,7 +163,7 @@ export default function AddClientModal({
                   type="text"
                   value={phone}
                   onChange={(event) => setPhone(event.target.value)}
-                  className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-900 outline-none transition focus:border-blue-600"
+                  className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-base text-gray-900 outline-none transition focus:border-blue-600 sm:text-sm"
                 />
               </div>
 
@@ -177,7 +177,7 @@ export default function AddClientModal({
                   value={contactNames}
                   onChange={(event) => setContactNames(event.target.value)}
                   placeholder="e.g. Jane Doe, John Smith"
-                  className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-900 outline-none transition focus:border-blue-600"
+                  className="mt-2 h-11 w-full rounded-lg border border-gray-200 px-3 text-base text-gray-900 outline-none transition focus:border-blue-600 sm:text-sm"
                 />
               </div>
 
@@ -190,7 +190,7 @@ export default function AddClientModal({
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
                   rows={3}
-                  className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-600"
+                  className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-base text-gray-900 outline-none transition focus:border-blue-600 sm:text-sm"
                 />
               </div>
 
