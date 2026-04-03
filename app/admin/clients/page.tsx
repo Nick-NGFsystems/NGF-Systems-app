@@ -1,6 +1,7 @@
 import AddClientModal from '@/components/admin/AddClientModal'
 import DeleteClientButton from '@/components/admin/DeleteClientButton'
 import ClientStatusSelect from '@/components/admin/ClientStatusSelect'
+import EditClientModal from '@/components/admin/EditClientModal'
 import { db } from '@/lib/db'
 import { formatLastLogin, getClientLastLoginMap } from '@/lib/client-last-login'
 import Link from 'next/link'
@@ -108,7 +109,15 @@ export default async function ClientsPage() {
                       <ClientStatusSelect clientId={client.id} currentStatus={client.status} />
                     </div>
 
-                    <div className="pt-1">
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <EditClientModal
+                        clientId={client.id}
+                        currentName={client.name}
+                        currentEmail={client.email}
+                        currentPhone={client.phone}
+                        currentContactNames={client.contact_names}
+                        currentNotes={client.notes}
+                      />
                       <DeleteClientButton clientId={client.id} clientName={client.name ?? 'this client'} />
                     </div>
                   </div>
@@ -173,7 +182,17 @@ export default async function ClientsPage() {
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Actions</p>
-                    <DeleteClientButton clientId={client.id} clientName={client.name ?? 'this client'} />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <EditClientModal
+                        clientId={client.id}
+                        currentName={client.name}
+                        currentEmail={client.email}
+                        currentPhone={client.phone}
+                        currentContactNames={client.contact_names}
+                        currentNotes={client.notes}
+                      />
+                      <DeleteClientButton clientId={client.id} clientName={client.name ?? 'this client'} />
+                    </div>
                   </div>
                 </div>
               ))}

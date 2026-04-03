@@ -25,6 +25,21 @@ async function validateAdmin() {
   return role === 'admin'
 }
 
+function splitClientName(name?: string | null) {
+  const trimmed = name?.trim()
+
+  if (!trimmed) {
+    return { firstName: undefined, lastName: undefined }
+  }
+
+  const [firstName, ...rest] = trimmed.split(/\s+/)
+
+  return {
+    firstName,
+    lastName: rest.length > 0 ? rest.join(' ') : undefined,
+  }
+}
+
 export async function DELETE(_request: Request, context: RouteContext) {
   try {
     const isAdmin = await validateAdmin()
@@ -195,20 +210,98 @@ export async function PATCH(request: Request, context: RouteContext) {
       clerk_user_id?: string | null
     } = {}
 
-    if (hasEmail && email !== existingClient.email) {
-      const clerk = await clerkClient()
+    const clerk = await clerkClient()
+    let linkedClerkUser = null
 
-      if (existingClient.clerk_user_id) {
+    if (existingClient.clerk_user_id) {
+      try {
+        linkedClerkUser = await clerk.users.getUser(existingClient.clerk_user_id)
+      } catch {
         return NextResponse.json(
-          {
-            success: false,
-            error: 'Cannot change email for a linked Clerk account from this screen',
-          },
-          { status: 400 }
+          { success: false, error: 'Failed to load linked Clerk user' },
+          { status: 502 }
         )
       }
 
-      if (email) {
+      const linkedRole = (linkedClerkUser.publicMetadata as { role?: string } | undefined)?.role
+
+      if (linkedRole && linkedRole !== 'client') {
+        return NextResponse.json(
+          { success: false, error: 'Linked Clerk user is not a client account' },
+          { status: 409 }
+        )
+      }
+    }
+
+    if (hasEmail && email !== existingClient.email) {
+      if (linkedClerkUser) {
+        if (!email) {
+          return NextResponse.json(
+            { success: false, error: 'Linked Clerk account requires an email address' },
+            { status: 400 }
+          )
+        }
+
+        const users = await clerk.users.getUserList({
+          emailAddress: [email],
+          limit: 10,
+        })
+
+        const conflictingUser = users.data.find((user) => user.id !== linkedClerkUser?.id)
+        if (conflictingUser) {
+          const conflictingRole = (conflictingUser.publicMetadata as { role?: string } | undefined)?.role
+
+          return NextResponse.json(
+            {
+              success: false,
+              error:
+                conflictingRole && conflictingRole !== 'client'
+                  ? 'This email is already used by a non-client Clerk account'
+                  : 'This email is already used by another Clerk account',
+            },
+            { status: 400 }
+          )
+        }
+
+        const matchingEmail = linkedClerkUser.emailAddresses.find(
+          (item) => item.emailAddress.toLowerCase() === email.toLowerCase()
+        )
+
+        let primaryEmailAddressID = matchingEmail?.id
+
+        if (!primaryEmailAddressID) {
+          const createdEmail = await clerk.emailAddresses.createEmailAddress({
+            userId: linkedClerkUser.id,
+            emailAddress: email,
+            verified: true,
+            primary: true,
+          })
+          primaryEmailAddressID = createdEmail.id
+        } else {
+          await clerk.emailAddresses.updateEmailAddress(primaryEmailAddressID, {
+            verified: true,
+            primary: true,
+          })
+        }
+
+        await clerk.users.updateUser(linkedClerkUser.id, {
+          primaryEmailAddressID,
+        })
+
+        const previousEmailAddress = linkedClerkUser.emailAddresses.find(
+          (item) => item.emailAddress.toLowerCase() === (existingClient.email ?? '').toLowerCase()
+        )
+
+        if (previousEmailAddress && previousEmailAddress.id !== primaryEmailAddressID) {
+          try {
+            await clerk.emailAddresses.deleteEmailAddress(previousEmailAddress.id)
+          } catch {
+            // Ignore old email cleanup failures once the new primary email is set.
+          }
+        }
+
+        data.clerk_user_id = linkedClerkUser.id
+      } else if (email) {
         const users = await clerk.users.getUserList({
           emailAddress: [email],
           limit: 1,
@@ -240,13 +333,23 @@ export async function PATCH(request: Request, context: RouteContext) {
       }
     }
 
+    if (hasName && linkedClerkUser) {
+      const { firstName, lastName } = splitClientName(name)
+
+      if (firstName || lastName) {
+        await clerk.users.updateUser(linkedClerkUser.id, {
+          ...(firstName ? { firstName } : {}),
+          ...(lastName ? { lastName } : {}),
+        })
+      }
+    }
+
     if (hasName) data.name = name
     if (hasEmail) data.email = email
     if (hasPhone) data.phone = phone
     if (hasContactNames) data.contact_names = contactNames
     if (hasNotes) data.notes = notes
     if (hasStatus && status) data.status = status
-
     const updatedClient = await db.client.update({
       where: { id: clientId },
       data,
