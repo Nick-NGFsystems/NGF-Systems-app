@@ -60,7 +60,7 @@ export default async function ClientDetailPage({ params }: ClientDetailPageProps
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Email</p>
             <p className="mt-1 text-sm text-gray-900 break-words">{client.email ?? '—'}</p>
@@ -73,7 +73,7 @@ export default async function ClientDetailPage({ params }: ClientDetailPageProps
             <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Names of People</p>
             <p className="mt-1 text-sm text-gray-900 break-words">{client.contact_names ?? '—'}</p>
           </div>
-          <div className="lg:col-span-2">
+          <div className="xl:col-span-2">
             <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Notes</p>
             <p className="mt-1 text-sm text-gray-900 break-words">{client.notes ?? '—'}</p>
           </div>

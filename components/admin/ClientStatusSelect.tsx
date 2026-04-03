@@ -61,12 +61,12 @@ export default function ClientStatusSelect({ clientId, currentStatus }: ClientSt
   }
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className="flex w-full min-w-0 flex-col items-start gap-1">
       <select
         value={status}
         onChange={(event) => handleStatusChange(event.target.value)}
         disabled={isSaving}
-        className="h-9 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-medium text-gray-700 outline-none transition focus:border-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+        className="h-9 w-full min-w-[140px] rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-medium text-gray-700 outline-none transition focus:border-blue-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
       >
         {options.map((option) => (
           <option key={option} value={option}>
