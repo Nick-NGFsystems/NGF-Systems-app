@@ -17,6 +17,7 @@ interface ConfigPayload {
   feature_products?: boolean
   feature_booking?: boolean
   feature_gallery?: boolean
+  booking_url?: string | null
   database_url?: string | null
   site_url?: string | null
   site_repo?: string | null
@@ -47,6 +48,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       ...(body.feature_products !== undefined && { feature_products: body.feature_products }),
       ...(body.feature_booking !== undefined && { feature_booking: body.feature_booking }),
       ...(body.feature_gallery !== undefined && { feature_gallery: body.feature_gallery }),
+      ...(body.booking_url !== undefined && { booking_url: body.booking_url?.trim() || null }),
       ...(body.database_url !== undefined && { database_url: body.database_url?.trim() || null }),
       ...(body.site_url !== undefined && { site_url: body.site_url?.trim() || null }),
       ...(body.site_repo !== undefined && { site_repo: body.site_repo?.trim() || null }),

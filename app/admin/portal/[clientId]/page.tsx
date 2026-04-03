@@ -72,6 +72,7 @@ export default async function AdminPortalClientPage({ params }: PageProps) {
           feature_products: client.config?.feature_products ?? false,
           feature_booking: client.config?.feature_booking ?? false,
           feature_gallery: client.config?.feature_gallery ?? false,
+          booking_url: client.config?.booking_url ?? '',
           database_url: client.config?.database_url ?? '',
           site_url: client.config?.site_url ?? '',
           site_repo: client.config?.site_repo ?? '',

@@ -11,6 +11,7 @@ interface PortalConfigState {
   feature_products: boolean
   feature_booking: boolean
   feature_gallery: boolean
+  booking_url: string
   database_url: string
   site_url: string
   site_repo: string
@@ -315,6 +316,16 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
               onChange={(event) => setConfig((prev) => ({ ...prev, database_url: event.target.value }))}
               className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
               placeholder="postgresql://..."
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Booking URL</label>
+            <input
+              type="text"
+              value={config.booking_url}
+              onChange={(event) => setConfig((prev) => ({ ...prev, booking_url: event.target.value }))}
+              className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
+              placeholder="https://example.com/booking/[token]"
             />
           </div>
           <div>
