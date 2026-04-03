@@ -17,6 +17,7 @@
     "next": "^15.3.8",
     "react": "18",
     "react-dom": "18",
+    "resend": "^6.10.0",
     "stripe": "latest",
     "svix": "^1.88.0"
   },
