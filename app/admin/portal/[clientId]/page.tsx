@@ -50,6 +50,17 @@ export default async function AdminPortalClientPage({ params }: PageProps) {
         <p className="mt-1 text-sm text-gray-500 break-words">{client.email ?? 'No email on file'}</p>
       </header>
 
+      {client.config?.feature_booking && (
+        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+          <Link
+            href={`/admin/portal/${client.id}/service-requests`}
+            className="inline-flex h-11 items-center rounded-lg border border-blue-200 bg-white px-4 text-sm font-medium text-blue-600 transition hover:bg-blue-50"
+          >
+            Service Requests
+          </Link>
+        </div>
+      )}
+
       <PortalManager
         clientId={client.id}
         initialConfig={{
