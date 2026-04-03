@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
+import { formatLastLogin, getClientLastLoginMap } from '@/lib/client-last-login'
 import ClientStatusSelect from '@/components/admin/ClientStatusSelect'
 
 export const dynamic = 'force-dynamic'
@@ -21,6 +22,10 @@ export default async function ClientDetailPage({ params }: ClientDetailPageProps
   if (!client) {
     notFound()
   }
+
+  const lastLoginMap = await getClientLastLoginMap(
+    client.clerk_user_id ? [client.clerk_user_id] : []
+  )
 
   return (
     <section className="space-y-6">
@@ -58,6 +63,12 @@ export default async function ClientDetailPage({ params }: ClientDetailPageProps
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Created</p>
             <p className="mt-1 text-sm text-gray-900">{new Date(client.created).toLocaleDateString()}</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Last Logged In</p>
+            <p className="mt-1 text-sm text-gray-900">
+              {formatLastLogin(client.clerk_user_id ? lastLoginMap[client.clerk_user_id] : null)}
+            </p>
           </div>
         </div>
       </header>

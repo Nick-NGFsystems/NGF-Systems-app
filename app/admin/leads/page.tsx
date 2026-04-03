@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import { formatLastLogin, getClientLastLoginMap } from '@/lib/client-last-login'
 import ConvertLeadButton from '@/components/admin/ConvertLeadButton'
 import DeleteClientButton from '@/components/admin/DeleteClientButton'
 import AddClientModal from '@/components/admin/AddClientModal'
@@ -11,6 +12,10 @@ export default async function LeadsPage() {
     where: { status: 'LEAD' },
     orderBy: { created: 'desc' },
   })
+
+  const lastLoginMap = await getClientLastLoginMap(
+    leads.map((lead) => lead.clerk_user_id).filter((id): id is string => Boolean(id))
+  )
 
   return (
     <section className="space-y-8">
@@ -32,11 +37,11 @@ export default async function LeadsPage() {
           </div>
         ) : (
           <>
-            <div className="hidden border-b border-gray-100 px-6 py-4 md:grid md:grid-cols-10 md:gap-4">
-              {['Name', 'Email', 'Phone', 'Names of People', 'Notes', 'Business', 'Intent', 'Date Received', 'Actions'].map((col, index) => (
+            <div className="hidden border-b border-gray-100 px-6 py-4 md:grid md:grid-cols-11 md:gap-4">
+              {['Name', 'Email', 'Phone', 'Names of People', 'Notes', 'Business', 'Intent', 'Last Logged In', 'Date Received', 'Actions'].map((col, index) => (
                 <p
                   key={col}
-                  className={`text-xs font-semibold uppercase tracking-wide text-gray-500 ${index === 8 ? 'md:col-span-2' : ''}`}
+                  className={`text-xs font-semibold uppercase tracking-wide text-gray-500 ${index === 9 ? 'md:col-span-2' : ''}`}
                 >
                   {col}
                 </p>
@@ -45,7 +50,7 @@ export default async function LeadsPage() {
 
             <div className="divide-y divide-gray-100">
               {leads.map((lead) => (
-                <div key={lead.id} className="grid grid-cols-1 gap-3 px-6 py-4 md:grid-cols-10 md:gap-4 md:items-center">
+                <div key={lead.id} className="grid grid-cols-1 gap-3 px-6 py-4 md:grid-cols-11 md:gap-4 md:items-center">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Name</p>
                     <p className="text-sm font-medium text-gray-900">{lead.name ?? '—'}</p>
@@ -73,6 +78,12 @@ export default async function LeadsPage() {
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Intent</p>
                     <p className="text-sm text-gray-600 break-words">{lead.intent ?? '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Last Logged In</p>
+                    <p className="text-sm text-gray-600">
+                      {formatLastLogin(lead.clerk_user_id ? lastLoginMap[lead.clerk_user_id] : null)}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Date Received</p>

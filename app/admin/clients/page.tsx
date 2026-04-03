@@ -2,6 +2,7 @@ import AddClientModal from '@/components/admin/AddClientModal'
 import DeleteClientButton from '@/components/admin/DeleteClientButton'
 import ClientStatusSelect from '@/components/admin/ClientStatusSelect'
 import { db } from '@/lib/db'
+import { formatLastLogin, getClientLastLoginMap } from '@/lib/client-last-login'
 import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
@@ -22,6 +23,7 @@ const clientColumns: ClientColumn[] = [
   { label: 'Names of People' },
   { label: 'Notes' },
   { label: 'Status' },
+  { label: 'Last Logged In' },
   { label: 'Date Created' },
   { label: 'Actions' },
 ]
@@ -38,6 +40,10 @@ export default async function ClientsPage() {
       created: 'desc',
     },
   })
+
+  const lastLoginMap = await getClientLastLoginMap(
+    clients.map((client) => client.clerk_user_id).filter((id): id is string => Boolean(id))
+  )
 
   return (
     <section className="space-y-8">
@@ -91,6 +97,13 @@ export default async function ClientsPage() {
                     </div>
 
                     <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Last Logged In</p>
+                      <p className="mt-1 text-sm text-gray-600">
+                        {formatLastLogin(client.clerk_user_id ? lastLoginMap[client.clerk_user_id] : null)}
+                      </p>
+                    </div>
+
+                    <div>
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Status</p>
                       <ClientStatusSelect clientId={client.id} currentStatus={client.status} />
                     </div>
@@ -104,7 +117,7 @@ export default async function ClientsPage() {
             </div>
 
             <div className="hidden md:block">
-              <div className="border-b border-gray-100 px-6 py-4 md:grid md:grid-cols-8 md:gap-4">
+              <div className="border-b border-gray-100 px-6 py-4 md:grid md:grid-cols-9 md:gap-4">
                 {clientColumns.map((column) => (
                   <p key={column.label} className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                     {column.label}
@@ -114,7 +127,7 @@ export default async function ClientsPage() {
 
               <div className="divide-y divide-gray-100">
               {clients.map((client) => (
-                <div key={client.id} className="grid grid-cols-1 gap-3 px-6 py-4 md:grid-cols-8 md:gap-4 md:items-center">
+                <div key={client.id} className="grid grid-cols-1 gap-3 px-6 py-4 md:grid-cols-9 md:gap-4 md:items-center">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Name</p>
                     <p className="text-sm font-medium">
@@ -145,6 +158,12 @@ export default async function ClientsPage() {
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Status</p>
                     <ClientStatusSelect clientId={client.id} currentStatus={client.status} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Last Logged In</p>
+                    <p className="text-sm text-gray-600">
+                      {formatLastLogin(client.clerk_user_id ? lastLoginMap[client.clerk_user_id] : null)}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Date Created</p>

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { db } from '@/lib/db'
+import { formatLastLogin, getClientLastLoginMap } from '@/lib/client-last-login'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,6 +17,10 @@ export default async function AdminPortalPage() {
     include: { config: true },
     orderBy: { created: 'desc' },
   })
+
+  const lastLoginMap = await getClientLastLoginMap(
+    clients.map((client) => client.clerk_user_id).filter((id): id is string => Boolean(id))
+  )
 
   return (
     <section className="space-y-8">
@@ -68,6 +73,13 @@ export default async function AdminPortalPage() {
                       ))}
                     </div>
                   )}
+                </div>
+
+                <div className="mt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Last Logged In</p>
+                  <p className="mt-1 text-sm text-gray-600">
+                    {formatLastLogin(client.clerk_user_id ? lastLoginMap[client.clerk_user_id] : null)}
+                  </p>
                 </div>
 
                 <div className="mt-5">
