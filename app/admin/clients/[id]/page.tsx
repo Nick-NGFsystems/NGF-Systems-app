@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { formatLastLogin, getClientLastLoginMap } from '@/lib/client-last-login'
 import ClientStatusSelect from '@/components/admin/ClientStatusSelect'
 import EditClientModal from '@/components/admin/EditClientModal'
+import CreateClerkAccountButton from '@/components/admin/CreateClerkAccountButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,6 +52,12 @@ export default async function ClientDetailPage({ params }: ClientDetailPageProps
               currentContactNames={client.contact_names}
               currentNotes={client.notes}
             />
+            {!client.clerk_user_id && (
+              <CreateClerkAccountButton
+                clientId={client.id}
+                clientEmail={client.email}
+              />
+            )}
             <Link
               href={`/admin/portal/${client.id}`}
               className="inline-flex h-11 items-center rounded-lg bg-slate-900 px-4 text-sm font-medium text-white transition hover:bg-slate-800"
