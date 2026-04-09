@@ -61,7 +61,7 @@ export default async function ClientsPage() {
           </div>
         ) : (
           <>
-            <div className="divide-y divide-gray-100 md:hidden">
+            <div className="divide-y divide-gray-100 xl:hidden">
               {clients.map((client) => (
                 <details key={client.id} className="px-4 py-3">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
@@ -125,8 +125,8 @@ export default async function ClientsPage() {
               ))}
             </div>
 
-            <div className="hidden md:block">
-              <div className="border-b border-gray-100 px-6 py-4 md:grid md:grid-cols-9 md:gap-4">
+            <div className="hidden xl:block">
+              <div className="border-b border-gray-100 px-6 py-4 xl:grid xl:grid-cols-9 xl:gap-4">
                 {clientColumns.map((column) => (
                   <p key={column.label} className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                     {column.label}
@@ -136,7 +136,7 @@ export default async function ClientsPage() {
 
               <div className="divide-y divide-gray-100">
               {clients.map((client) => (
-                <div key={client.id} className="grid grid-cols-1 gap-3 px-6 py-4 md:grid-cols-9 md:gap-4 md:items-center">
+                <div key={client.id} className="grid grid-cols-1 gap-3 px-6 py-4 xl:grid-cols-9 xl:gap-4 xl:items-start">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Name</p>
                     <p className="text-sm font-medium">
@@ -164,13 +164,13 @@ export default async function ClientsPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Notes</p>
                     <p className="text-sm text-gray-700 break-words">{client.notes ?? '—'}</p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Status</p>
                     <ClientStatusSelect clientId={client.id} currentStatus={client.status} />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Last Logged In</p>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm text-gray-600 break-words">
                       {formatLastLogin(client.clerk_user_id ? lastLoginMap[client.clerk_user_id] : null)}
                     </p>
                   </div>
