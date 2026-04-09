@@ -78,9 +78,10 @@ export async function DELETE(_request: Request, context: RouteContext) {
         }
 
         await clerk.users.deleteUser(existingClient.clerk_user_id)
-    } catch (clerkErr) {
-      // Clerk user may already be gone — log and continue so the DB record is always cleaned up
+     } catch (clerkErr) {
+      // Clerk user may already be gone — log and continue so DB is always cleaned up
       console.warn('Could not delete Clerk user, continuing with DB delete:', clerkErr)
+      }
     }
 
     if (existingClient.email) {
