@@ -112,6 +112,10 @@ export default function AddClientModal({
               </button>
             </div>
 
+            <p className="mt-3 text-sm text-gray-500">
+              Add whatever info you have now — the rest can be filled in later.
+            </p>
+
             <form onSubmit={handleSubmit} className="mt-5 space-y-4">
               <div>
                 <label htmlFor="client-name" className="text-sm font-medium text-gray-700">
@@ -128,7 +132,7 @@ export default function AddClientModal({
 
               <div>
                 <label htmlFor="client-email" className="text-sm font-medium text-gray-700">
-                  Email (used for portal login account)
+                  Email (optional — only needed for portal login)
                 </label>
                 <input
                   id="client-email"

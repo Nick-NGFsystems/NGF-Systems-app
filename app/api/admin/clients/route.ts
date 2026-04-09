@@ -58,38 +58,38 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, error: 'A client with this email already exists' }, { status: 400 })
       }
 
-      try {
-        const clerk = await clerkClient()
-        let existingClerkUserId: string | null = null
+      if (sendSetupEmail) {
+        try {
+          const clerk = await clerkClient()
+          let existingClerkUserId: string | null = null
 
-        const existingUsers = await clerk.users.getUserList({
-          emailAddress: [email],
-          limit: 1,
-        })
+          const existingUsers = await clerk.users.getUserList({
+            emailAddress: [email],
+            limit: 1,
+          })
 
-        if (existingUsers.data.length > 0) {
-          const existingUser = existingUsers.data[0]
-          const existingRole = (existingUser.publicMetadata as { role?: string } | undefined)?.role
+          if (existingUsers.data.length > 0) {
+            const existingUser = existingUsers.data[0]
+            const existingRole = (existingUser.publicMetadata as { role?: string } | undefined)?.role
 
-          if (existingRole && existingRole !== 'client') {
-            return NextResponse.json(
-              {
-                success: false,
-                error: 'This email is already used by a non-client Clerk account',
-              },
-              { status: 400 }
-            )
+            if (existingRole && existingRole !== 'client') {
+              return NextResponse.json(
+                {
+                  success: false,
+                  error: 'This email is already used by a non-client Clerk account',
+                },
+                { status: 400 }
+              )
+            }
+
+            existingClerkUserId = existingUser.id
+            await clerk.users.updateUserMetadata(existingClerkUserId, {
+              publicMetadata: { role: 'client' },
+            })
           }
 
-          existingClerkUserId = existingUser.id
-          await clerk.users.updateUserMetadata(existingClerkUserId, {
-            publicMetadata: { role: 'client' },
-          })
-        }
-
-        if (sendSetupEmail) {
-          // Send an application invitation only when explicitly requested by admin.
-          // The client creates their password through Clerk's invite flow.
+          // Only attempt Clerk setup when the admin explicitly requests a setup email.
+          // This keeps client creation flexible even when some contact/account info is still missing.
           if (existingClerkUserId) {
             createdClerkUserId = existingClerkUserId
             resultMessage = 'Client created and linked to existing Clerk user'
@@ -115,31 +115,17 @@ export async function POST(request: Request) {
               }
             }
           }
-        } else {
-          // Create the Clerk user without sending any setup email.
-          // Admin can choose to notify the client later.
-          if (existingClerkUserId) {
-            createdClerkUserId = existingClerkUserId
-            resultMessage = 'Client created and linked to existing Clerk user'
-          } else {
-            const createdUser = await clerk.users.createUser({
-              emailAddress: [email],
-              publicMetadata: { role: 'client' },
-            })
-            createdClerkUserId = createdUser.id
-            resultMessage = 'Client created and Clerk account linked'
-          }
+        } catch (error: unknown) {
+          const maybeError = error as { errors?: Array<{ message?: string }> }
+          const detail = maybeError.errors?.[0]?.message
+          return NextResponse.json(
+            {
+              success: false,
+              error: detail ?? 'Unable to create Clerk account for this client',
+            },
+            { status: 400 }
+          )
         }
-      } catch (error: unknown) {
-        const maybeError = error as { errors?: Array<{ message?: string }> }
-        const detail = maybeError.errors?.[0]?.message
-        return NextResponse.json(
-          {
-            success: false,
-            error: detail ?? 'Unable to create Clerk account for this client',
-          },
-          { status: 400 }
-        )
       }
     }
 
