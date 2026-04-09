@@ -40,6 +40,19 @@ function splitClientName(name?: string | null) {
   }
 }
 
+function isClerkUserMissingError(error: unknown) {
+  const maybeError = error as {
+    status?: number
+    errors?: Array<{ code?: string; message?: string; longMessage?: string }>
+  }
+
+  const firstError = maybeError.errors?.[0]
+  const code = firstError?.code?.toLowerCase()
+  const message = (firstError?.message ?? firstError?.longMessage ?? '').toLowerCase()
+
+  return maybeError.status === 404 || code === 'resource_not_found' || message.includes('not found')
+}
+
 export async function DELETE(_request: Request, context: RouteContext) {
   try {
     const isAdmin = await validateAdmin()
@@ -214,13 +227,22 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (existingClient.clerk_user_id) {
       try {
         linkedClerkUser = await clerk.users.getUser(existingClient.clerk_user_id)
-      } catch {
-        return NextResponse.json(
-          { success: false, error: 'Failed to load linked Clerk user' },
-          { status: 502 }
-        )
+      } catch (error) {
+        if (isClerkUserMissingError(error)) {
+          console.warn('Linked Clerk user no longer exists; clearing stale reference for client', clientId)
+          data.clerk_user_id = null
+          linkedClerkUser = null
+        } else {
+          console.error('Failed to load linked Clerk user for client update:', error)
+          return NextResponse.json(
+            { success: false, error: 'Failed to load linked Clerk user' },
+            { status: 502 }
+          )
+        }
       }
+    }
 
+    if (linkedClerkUser) {
       const linkedRole = (linkedClerkUser.publicMetadata as { role?: string } | undefined)?.role
 
       if (linkedRole && linkedRole !== 'client') {
@@ -354,7 +376,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     })
 
     return NextResponse.json({ success: true, data: updatedClient })
-  } catch {
+  } catch (error) {
+    console.error('Update client error:', error)
     return NextResponse.json({ success: false, error: 'Failed to update client' }, { status: 500 })
   }
 }
