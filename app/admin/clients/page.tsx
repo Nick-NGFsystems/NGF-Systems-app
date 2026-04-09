@@ -1,42 +1,18 @@
 import AddClientModal from '@/components/admin/AddClientModal'
-import DeleteClientButton from '@/components/admin/DeleteClientButton'
-import ClientStatusSelect from '@/components/admin/ClientStatusSelect'
-import EditClientModal from '@/components/admin/EditClientModal'
+import ClientsTable from '@/components/admin/ClientsTable'
 import { db } from '@/lib/db'
 import { formatLastLogin, getClientLastLoginMap } from '@/lib/client-last-login'
-import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
 
-interface ClientColumn {
-  label: string
-}
-
-interface EmptyState {
-  title: string
-  description: string
-}
-
-const clientColumns: ClientColumn[] = [
-  { label: 'Name' },
-  { label: 'Email' },
-  { label: 'Phone' },
-  { label: 'Names of People' },
-  { label: 'Notes' },
-  { label: 'Status' },
-  { label: 'Last Logged In' },
-  { label: 'Date Created' },
-  { label: 'Actions' },
-]
-
-const emptyState: EmptyState = {
-  title: 'No active clients yet',
-  description: 'Create a client or convert a lead to active to see them here.',
+const emptyState = {
+  title: 'No clients yet',
+  description: 'Create a client to start managing their portal access and configuration.',
 }
 
 export default async function ClientsPage() {
   const clients = await db.client.findMany({
-    where: { status: 'ACTIVE' },
+    include: { config: true },
     orderBy: {
       created: 'desc',
     },
@@ -46,162 +22,44 @@ export default async function ClientsPage() {
     clients.map((client) => client.clerk_user_id).filter((id): id is string => Boolean(id))
   )
 
+  const clientRows = clients.map((client) => ({
+    id: client.id,
+    name: client.name,
+    email: client.email,
+    phone: client.phone,
+    contact_names: client.contact_names,
+    notes: client.notes,
+    status: client.status,
+    createdLabel: new Date(client.created).toLocaleDateString(),
+    lastLoginLabel: formatLastLogin(client.clerk_user_id ? lastLoginMap[client.clerk_user_id] : null),
+    portalPages: [
+      client.config?.page_request ? 'Request' : null,
+      client.config?.page_website ? 'Website' : null,
+      client.config?.page_content ? 'Content' : null,
+      client.config?.page_invoices ? 'Invoices' : null,
+    ].filter((value): value is string => Boolean(value)),
+  }))
+
   return (
     <section className="space-y-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="font-sans text-3xl font-semibold tracking-tight text-slate-900">Clients</h1>
+        <div>
+          <h1 className="font-sans text-3xl font-semibold tracking-tight text-slate-900">Clients</h1>
+          <p className="mt-1 text-sm text-gray-500">Manage client records, portal access, and enabled pages in one place.</p>
+        </div>
         <AddClientModal />
       </header>
 
-      <section className="rounded-xl border border-gray-100 bg-white shadow-sm">
-        {clients.length === 0 ? (
+      {clientRows.length === 0 ? (
+        <section className="rounded-xl border border-gray-100 bg-white shadow-sm">
           <div className="m-4 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-6 py-12 text-center">
             <p className="font-sans text-lg font-semibold tracking-tight text-gray-900">{emptyState.title}</p>
             <p className="mt-2 text-sm text-gray-500">{emptyState.description}</p>
           </div>
-        ) : (
-          <>
-            <div className="divide-y divide-gray-100 xl:hidden">
-              {clients.map((client) => (
-                <details key={client.id} className="px-4 py-3">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900">{client.name ?? 'Unnamed'}</p>
-                      <p className="truncate text-xs text-gray-500">{client.email ?? 'No email'}</p>
-                    </div>
-                    <span className="shrink-0 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600">
-                      Open
-                    </span>
-                  </summary>
-
-                  <div className="mt-4 space-y-3 border-t border-gray-100 pt-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Phone</p>
-                      <p className="mt-1 text-sm text-gray-700 break-words">{client.phone ?? '—'}</p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Names of People</p>
-                      <p className="mt-1 text-sm text-gray-700 break-words">{client.contact_names ?? '—'}</p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Notes</p>
-                      <p className="mt-1 text-sm text-gray-700 break-words">{client.notes ?? '—'}</p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Date Created</p>
-                      <p className="mt-1 text-sm text-gray-600">
-                        {new Date(client.created).toLocaleDateString()}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Last Logged In</p>
-                      <p className="mt-1 text-sm text-gray-600">
-                        {formatLastLogin(client.clerk_user_id ? lastLoginMap[client.clerk_user_id] : null)}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Status</p>
-                      <ClientStatusSelect clientId={client.id} currentStatus={client.status} />
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 pt-1">
-                      <Link href={`/admin/clients/${client.id}`} className="inline-flex items-center px-3 py-1 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition">View Details →</Link>
-                <EditClientModal
-                        clientId={client.id}
-                        currentName={client.name}
-                        currentEmail={client.email}
-                        currentPhone={client.phone}
-                        currentContactNames={client.contact_names}
-                        currentNotes={client.notes}
-                      />
-                      <DeleteClientButton clientId={client.id} clientName={client.name ?? 'this client'} />
-                    </div>
-                  </div>
-                </details>
-              ))}
-            </div>
-
-            <div className="hidden xl:block">
-              <div className="border-b border-gray-100 px-6 py-4 xl:grid xl:grid-cols-9 xl:gap-4">
-5                {clientColumns.map((column) => (
-                  <p key={column.label} className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    {column.label}
-                  </p>
-                ))}
-              </div>
-
-              <div className="divide-y divide-gray-100">
-              {clients.map((client) => (
-                <div key={client.id} className="grid grid-cols-1 gap-3 px-6 py-4 xl:grid-cols-9 xl:gap-4 xl:items-start">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Name</p>
-                    <p className="text-sm font-medium">
-                      <Link
-                        href={`/admin/clients/${client.id}`}
-                        className="text-gray-900 transition hover:text-blue-600"
-                      >
-                        {client.name ?? 'Unnamed'}
-                      </Link>
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Email</p>
-                    <p className="text-sm text-gray-700 break-words">{client.email ?? '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Phone</p>
-                    <p className="text-sm text-gray-700 break-words">{client.phone ?? '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Names of People</p>
-                    <p className="text-sm text-gray-700 break-words">{client.contact_names ?? '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Notes</p>
-                    <p className="text-sm text-gray-700 break-words">{client.notes ?? '—'}</p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Status</p>
-                    <ClientStatusSelect clientId={client.id} currentStatus={client.status} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Last Logged In</p>
-                    <p className="text-sm text-gray-600 break-words">
-                      {formatLastLogin(client.clerk_user_id ? lastLoginMap[client.clerk_user_id] : null)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Date Created</p>
-                    <p className="text-sm text-gray-600">
-                      {new Date(client.created).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Actions</p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <EditClientModal
-                        clientId={client.id}
-                        currentName={client.name}
-                        currentEmail={client.email}
-                        currentPhone={client.phone}
-                        currentContactNames={client.contact_names}
-                        currentNotes={client.notes}
-                      />
-                      <DeleteClientButton clientId={client.id} clientName={client.name ?? 'this client'} />
-                    </div>
-                  </div>
-                </div>
-              ))}
-              </div>
-            </div>
-          </>
-        )}
-      </section>
+        </section>
+      ) : (
+        <ClientsTable clients={clientRows} />
+      )}
     </section>
   )
 }

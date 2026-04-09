@@ -17,9 +17,13 @@ interface UpdateConfigBody {
   feature_products?: boolean
   feature_booking?: boolean
   feature_gallery?: boolean
+  booking_url?: string | null
+  database_url?: string | null
+  site_url?: string | null
+  site_repo?: string | null
 }
 
-const ALLOWED_FIELDS: (keyof UpdateConfigBody)[] = [
+const BOOLEAN_FIELDS = [
   'page_request',
   'page_website',
   'page_content',
@@ -28,7 +32,9 @@ const ALLOWED_FIELDS: (keyof UpdateConfigBody)[] = [
   'feature_products',
   'feature_booking',
   'feature_gallery',
-]
+] as const
+
+const STRING_FIELDS = ['booking_url', 'database_url', 'site_url', 'site_repo'] as const
 
 export async function PATCH(request: Request, context: RouteContext) {
   try {
@@ -48,9 +54,22 @@ export async function PATCH(request: Request, context: RouteContext) {
     const body = (await request.json()) as UpdateConfigBody
 
     const data: Partial<UpdateConfigBody> = {}
-    for (const field of ALLOWED_FIELDS) {
+
+    for (const field of BOOLEAN_FIELDS) {
       if (typeof body[field] === 'boolean') {
         data[field] = body[field]
+      }
+    }
+
+    for (const field of STRING_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(body, field)) {
+        const value = body[field]
+
+        if (typeof value === 'string') {
+          data[field] = value.trim() || null
+        } else if (value === null) {
+          data[field] = null
+        }
       }
     }
 
@@ -73,7 +92,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     })
 
     return NextResponse.json({ success: true, data: updated })
-  } catch {
+  } catch (error) {
+    console.error('Update client config error:', error)
     return NextResponse.json({ success: false, error: 'Failed to update config' }, { status: 500 })
   }
 }
