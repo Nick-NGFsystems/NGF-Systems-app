@@ -84,7 +84,7 @@ export default function EditClientModal({
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        className="h-9 rounded-lg border border-gray-200 px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+        className="h-9 w-full rounded-lg border border-gray-200 px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50 sm:w-auto"
       >
         Edit
       </button>

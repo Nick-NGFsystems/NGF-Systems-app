@@ -37,11 +37,11 @@ export default async function LeadsPage() {
           </div>
         ) : (
           <>
-            <div className="hidden border-b border-gray-100 px-6 py-4 md:grid md:grid-cols-11 md:gap-4">
+            <div className="hidden border-b border-gray-100 px-6 py-4 md:grid md:grid-cols-12 md:gap-4">
               {['Name', 'Email', 'Phone', 'Names of People', 'Notes', 'Business', 'Intent', 'Last Logged In', 'Date Received', 'Actions'].map((col, index) => (
                 <p
                   key={col}
-                  className={`text-xs font-semibold uppercase tracking-wide text-gray-500 ${index === 9 ? 'md:col-span-2' : ''}`}
+                  className={`text-xs font-semibold uppercase tracking-wide text-gray-500 ${index === 9 ? 'md:col-span-3' : ''}`}
                 >
                   {col}
                 </p>
@@ -50,7 +50,7 @@ export default async function LeadsPage() {
 
             <div className="divide-y divide-gray-100">
               {leads.map((lead) => (
-                <div key={lead.id} className="grid grid-cols-1 gap-3 px-6 py-4 md:grid-cols-11 md:gap-4 md:items-center">
+                <div key={lead.id} className="grid grid-cols-1 gap-3 px-6 py-4 md:grid-cols-12 md:gap-4 md:items-start">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Name</p>
                     <p className="text-sm font-medium text-gray-900">{lead.name ?? '—'}</p>
@@ -89,7 +89,7 @@ export default async function LeadsPage() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 md:hidden">Date Received</p>
                     <p className="text-sm text-gray-600">{new Date(lead.created).toLocaleDateString()}</p>
                   </div>
-                  <div className="flex w-full flex-col gap-2 md:col-span-2 md:flex-row md:items-start md:gap-3 sm:flex-row sm:gap-2">
+                  <div className="flex w-full flex-wrap items-start gap-2 md:col-span-3">
                     <EditClientModal
                       clientId={lead.id}
                       currentName={lead.name}
