@@ -110,7 +110,8 @@ export default async function ClientsPage() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                      <EditClientModal
+                      <Link href={`/admin/clients/${client.id}`} className="inline-flex items-center px-3 py-1 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition">View Details →</Link>
+                <EditClientModal
                         clientId={client.id}
                         currentName={client.name}
                         currentEmail={client.email}
@@ -127,7 +128,7 @@ export default async function ClientsPage() {
 
             <div className="hidden xl:block">
               <div className="border-b border-gray-100 px-6 py-4 xl:grid xl:grid-cols-9 xl:gap-4">
-                {clientColumns.map((column) => (
+5                {clientColumns.map((column) => (
                   <p key={column.label} className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                     {column.label}
                   </p>
