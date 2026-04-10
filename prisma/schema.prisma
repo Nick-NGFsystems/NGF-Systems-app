@@ -24,6 +24,8 @@ model Client {
   config         ClientConfig?
   projects       Project[]
 
+  stripe_customer_id String?  @unique
+
   @@map("clients")
 }
 
@@ -217,4 +219,22 @@ model ProjectRequest {
   updated     DateTime @updatedAt
 
   @@map("project_requests")
+}
+
+model Subscription {
+  id                     String    @id @default(cuid())
+  client_id              String    @unique
+  stripe_subscription_id String?   @unique
+  stripe_customer_id     String?
+  plan_name              String
+  plan_type              String    @default("MONTHLY")
+  status                 String    @default("ACTIVE")
+  amount_cents           Int
+  current_period_start   DateTime?
+  current_period_end     DateTime?
+  cancel_at_period_end   Boolean   @default(false)
+  created                DateTime  @default(now())
+  updated                DateTime  @updatedAt
+
+  @@map("subscriptions")
 }
