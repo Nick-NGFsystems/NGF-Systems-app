@@ -1,0 +1,67 @@
+import { NextRequest, NextResponse } from 'next/server'
+
+export async function GET(req: NextRequest) {
+  const url = req.nextUrl.searchParams.get('url')
+  if (!url) return new NextResponse('Missing url param', { status: 400 })
+
+  let target: string
+  try {
+    target = url.startsWith('http') ? url : `https://${url}`
+    new URL(target) // validate
+  } catch {
+    return new NextResponse('Invalid url', { status: 400 })
+  }
+
+  try {
+    const upstream = await fetch(target, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (compatible; NGF-SitePreview/1.0)',
+        Accept: 'text/html,application/xhtml+xml,*/*',
+      },
+      redirect: 'follow',
+    })
+
+    const contentType = upstream.headers.get('content-type') ?? 'text/html'
+
+    if (!contentType.includes('text/html')) {
+      const buf = await upstream.arrayBuffer()
+      return new NextResponse(buf, {
+        status: upstream.status,
+        headers: { 'Content-Type': contentType },
+      })
+    }
+
+    let html = await upstream.text()
+
+    // Inject <base> so relative URLs resolve against the real origin
+    const origin = new URL(target).origin
+    const baseTag = `<base href="${origin}/">`
+    if (!html.includes('<base')) {
+      html = html.replace(/(<head[^>]*>)/i, `$1${baseTag}`)
+    }
+
+    // Inject postMessage bridge so the editor can reload the frame after save
+    const bridge = `<script>
+(function () {
+  window.addEventListener('message', function (e) {
+    if (e.data && e.data.type === 'reloadPreview') {
+      window.location.reload()
+    }
+  })
+})()
+</script>`
+    html = html.replace('</body>', bridge + '</body>')
+
+    // Strip framing-prevention headers and return clean HTML
+    return new NextResponse(html, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        // Intentionally omit X-Frame-Options and CSP frame-ancestors
+      },
+    })
+  } catch (err) {
+    return new NextResponse(`Proxy error: ${String(err)}`, { status: 502 })
+  }
+}
