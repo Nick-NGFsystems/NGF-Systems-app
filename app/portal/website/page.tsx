@@ -103,9 +103,7 @@ export default function WebsitePage() {
 
   const iframeRef   = useRef<HTMLIFrameElement>(null)
   const siteUrl      = data?.site_url ?? null
-  const iframeSrc    = siteUrl
-    ? `/api/proxy?url=${encodeURIComponent(siteUrl.startsWith('http') ? siteUrl : 'https://' + siteUrl)}`
-    : '/portal/website/preview'
+  const iframeSrc = '/portal/website/preview'
   const sendTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -133,7 +131,7 @@ export default function WebsitePage() {
   const pushToPreview = useCallback((content: ContentBlock) => {
     if (sendTimer.current) clearTimeout(sendTimer.current)
     sendTimer.current = setTimeout(() => {
-      iframeRef.current?.contentWindow?.postMessage({ type: 'reloadPreview' }, '*')
+      iframeRef.current?.contentWindow?.postMessage({ type: 'contentUpdate', content }, '*')
     }, 120)
   }, [])
 
@@ -191,8 +189,6 @@ export default function WebsitePage() {
       const updated: WebsiteData = await r.json()
       setData(updated)
       setSaveStatus('saved')
-      // Reload iframe so live site reflects saved changes
-      setTimeout(() => iframeRef.current?.contentWindow?.postMessage({ type: 'reloadPreview' }, '*'), 400)
       setTimeout(() => setSaveStatus('idle'), 2200)
     } catch {
       setSaveStatus('error')
