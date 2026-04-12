@@ -238,3 +238,14 @@ model Subscription {
 
   @@map("subscriptions")
 }
+
+model WebsiteContent {
+  id           String    @id @default(cuid())
+  client_id    String    @unique
+  content      Json
+  published_at DateTime?
+  created      DateTime  @default(now())
+  updated      DateTime  @updatedAt
+
+  @@map("website_content")
+}
