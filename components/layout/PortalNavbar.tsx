@@ -20,6 +20,7 @@ export default function PortalNavbar({ config }: PortalNavbarProps) {
 
   const links: PortalNavbarLink[] = [
     { label: 'Dashboard', href: '/portal/portal-dashboard' },
+    { label: 'Website Editor', href: '/portal/website' },
     ...(config.page_website ? [{ label: 'My Website', href: '/portal/portal-website' }] : []),
     ...(config.page_content ? [{ label: 'Content', href: '/portal/portal-content' }] : []),
     ...(config.page_invoices ? [{ label: 'Invoices', href: '/portal/portal-invoices' }] : []),
