@@ -21,6 +21,7 @@ interface WebsiteData {
   id: string
   content: ContentBlock
   published_at: string | null
+  site_url?: string | null
 }
 
 const SECTIONS = ['hero', 'about', 'services', 'contact', 'brand', 'seo'] as const
@@ -101,6 +102,7 @@ export default function WebsitePage() {
   const [loading, setLoading]             = useState(true)
 
   const iframeRef   = useRef<HTMLIFrameElement>(null)
+  const siteUrl      = data?.site_url ?? null
   const sendTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const closeTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -292,6 +294,17 @@ export default function WebsitePage() {
           onClick={e => e.stopPropagation()}
         >
           <span className="text-xs text-black/50 mr-1">Click a section to edit</span>
+            {siteUrl && (
+              <a
+                href={siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{ pointerEvents: 'auto', color: 'rgba(255,255,255,0.85)', fontSize: '12px', fontWeight: 500, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '3px', background: 'rgba(255,255,255,0.12)', borderRadius: '20px', padding: '2px 8px', border: '1px solid rgba(255,255,255,0.20)' }}
+                onClick={e => e.stopPropagation()}
+              >
+                🌐 {siteUrl.replace(/^https?:\/\//, '')}
+              </a>
+            )}
           {SECTIONS.map(id => (
             <button
               key={id}
