@@ -231,7 +231,7 @@ export default function WebsitePage() {
 
   return (
     <div
-      className="relative overflow-hidden bg-black"
+      className="relative overflow-hidden bg-black h-full"
       style={{
         /* Full-bleed: escape <main> padding at every breakpoint */
         marginTop: '-1.5rem',
