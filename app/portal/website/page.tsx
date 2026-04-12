@@ -291,7 +291,7 @@ export default function WebsitePage() {
           style={{ ...glass.pill, pointerEvents: 'none' }}
           onClick={e => e.stopPropagation()}
         >
-          <span className="text-xs text-white/50 mr-1">Click a section to edit</span>
+          <span className="text-xs text-black/50 mr-1">Click a section to edit</span>
           {SECTIONS.map(id => (
             <button
               key={id}
@@ -333,7 +333,7 @@ export default function WebsitePage() {
                   title={SECTION_META[id].label}
                   style={{
                     ...(id === activeSection ? glass.sectionPillActive : glass.sectionPill),
-                    color: id === activeSection ? '#fff' : 'rgba(255,255,255,0.5)',
+                    color: id === activeSection ? 'rgba(0,0,0,0.85)' : 'rgba(0,0,0,0.45)',
                     fontSize: '13px',
                     padding: '4px 8px',
                     cursor: 'pointer',
@@ -374,7 +374,7 @@ export default function WebsitePage() {
                 <div key={s.id} style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.10)', padding: '14px' }}>
                   <div className="flex justify-between items-center mb-3">
                     <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Service {i + 1}</span>
-                    <button onClick={() => removeService(i)} style={{ color: 'rgba(255,100,100,0.7)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px' }}>✕ Remove</button>
+                    <button onClick={() => removeService(i)} style={{ color: 'rgba(190,30,30,0.85)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px' }}>✕ Remove</button>
                   </div>
                   <GlassField label="Title"       value={s.title}       onChange={v => updateService(i,'title',v)} />
                   <div className="mt-3">
@@ -444,7 +444,7 @@ function GlassField({ label, value, onChange, textarea = false }: {
   }
   return (
     <div>
-      <label style={{ display: 'block', color: 'rgba(255,255,255,0.45)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '6px' }}>
+      <label style={{ display: 'block', color: 'rgba(0,0,0,0.60)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '6px' }}>
         {label}
       </label>
       {textarea
@@ -460,14 +460,14 @@ function GlassColorField({ label, value, onChange }: {
 }) {
   return (
     <div>
-      <label style={{ display: 'block', color: 'rgba(255,255,255,0.45)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '6px' }}>
+      <label style={{ display: 'block', color: 'rgba(0,0,0,0.60)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '6px' }}>
         {label}
       </label>
       <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
         <input type="color" value={value} onChange={e => onChange(e.target.value)}
           style={{ width: '44px', height: '36px', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '10px', cursor: 'pointer', background: 'none', padding: '2px' }} />
         <input value={value} onChange={e => onChange(e.target.value)}
-          style={{ flex: 1, padding: '9px 12px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '12px', color: '#fff', fontSize: '13px', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' }} />
+          style={{ flex: 1, padding: '9px 12px', background: 'rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.12)', borderRadius: '12px', color: '#1a1a1a', fontSize: '13px', outline: 'none', fontFamily: 'monospace', boxSizing: 'border-box' }} />
       </div>
     </div>
   )

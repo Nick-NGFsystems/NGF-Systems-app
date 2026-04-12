@@ -180,7 +180,7 @@ export default function ClientPortalOverview({
           </Link>
           {siteUrl ? (
             <a
-              href={siteUrl}
+              href={siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`}
               target="_blank"
               rel="noreferrer"
               className="inline-flex h-11 items-center rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
