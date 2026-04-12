@@ -211,7 +211,13 @@ export default function WebsitePage() {
   }, [])
 
   if (loading) return (
-    <div className="fixed inset-x-0 bottom-0 flex items-center justify-center bg-black" style={{ top: '4rem' }}>
+    <div
+      className="flex items-center justify-center bg-black"
+      style={{
+        marginTop: '-1.5rem', marginBottom: '-1.5rem',
+        marginLeft: 'calc(-50vw + 50%)', marginRight: 'calc(-50vw + 50%)',
+        width: '100vw', height: 'calc(100vh - 4rem)',
+      }}>
       <div className="flex flex-col items-center gap-3">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
         <p className="text-sm text-white/50">Loading editor…</p>
@@ -222,7 +228,18 @@ export default function WebsitePage() {
   const content = data!.content
 
   return (
-    <div className="fixed inset-x-0 bottom-0 overflow-hidden bg-black" style={{ top: '4rem' }}
+    <div
+      className="relative overflow-hidden bg-black"
+      style={{
+        /* Full-bleed: escape <main> padding at every breakpoint */
+        marginTop: '-1.5rem',
+        marginBottom: '-1.5rem',
+        marginLeft: 'calc(-50vw + 50%)',
+        marginRight: 'calc(-50vw + 50%)',
+        width: '100vw',
+        /* Exact height: viewport minus sticky navbar (h-16 = 4rem) */
+        height: 'calc(100vh - 4rem)',
+      }}
          onClick={() => activeSection && closePanel()}>
 
       {/* ── Full-screen preview iframe ── */}
