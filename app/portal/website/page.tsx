@@ -211,7 +211,7 @@ export default function WebsitePage() {
   }, [])
 
   if (loading) return (
-    <div className="flex h-screen w-full items-center justify-center bg-black">
+    <div className="fixed inset-x-0 bottom-0 flex items-center justify-center bg-black" style={{ top: '4rem' }}>
       <div className="flex flex-col items-center gap-3">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
         <p className="text-sm text-white/50">Loading editor…</p>
@@ -222,7 +222,7 @@ export default function WebsitePage() {
   const content = data!.content
 
   return (
-    <div className="relative h-screen w-full overflow-hidden bg-black"
+    <div className="fixed inset-x-0 bottom-0 overflow-hidden bg-black" style={{ top: '4rem' }}
          onClick={() => activeSection && closePanel()}>
 
       {/* ── Full-screen preview iframe ── */}
