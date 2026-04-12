@@ -19,13 +19,19 @@ const defaultContent = {
 export async function GET() {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const client = await db.client.findUnique({ where: { clerk_user_id: userId } })
+  const client = await db.client.findUnique({
+    where: { clerk_user_id: userId },
+    include: { config: true },
+  })
   if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 })
   let websiteContent = await db.websiteContent.findUnique({ where: { client_id: client.id } })
   if (!websiteContent) {
     websiteContent = await db.websiteContent.create({ data: { client_id: client.id, content: defaultContent } })
   }
-  return NextResponse.json(websiteContent)
+  return NextResponse.json({
+    ...websiteContent,
+    site_url: client.config?.site_url ?? null,
+  })
 }
 
 export async function PUT(request: NextRequest) {

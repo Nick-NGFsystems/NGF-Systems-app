@@ -1,358 +1,329 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 
-interface Service {
+interface WebsiteData {
   id: string
-  title: string
-  description: string
+  client_id: string
+  content: Record<string, unknown>
+  published_at: string | null
+  site_url: string | null
 }
 
-interface WebsiteContentData {
-  hero: { headline: string; subheadline: string; ctaText: string; ctaLink: string }
-  about: { title: string; body: string }
-  services: Service[]
-  contact: { phone: string; email: string; address: string; hours: string }
-  brand: { businessName: string; tagline: string; primaryColor: string; secondaryColor: string }
-  gallery: string[]
-  seo: { metaTitle: string; metaDescription: string }
-}
-
-const defaultContent: WebsiteContentData = {
-  hero: { headline: 'Welcome to Our Business', subheadline: 'We provide excellent services', ctaText: 'Get In Touch', ctaLink: '#contact' },
-  about: { title: 'About Us', body: 'Tell your story here...' },
-  services: [
-    { id: '1', title: 'Service One', description: 'Describe your first service' },
-    { id: '2', title: 'Service Two', description: 'Describe your second service' },
-    { id: '3', title: 'Service Three', description: 'Describe your third service' },
-  ],
-  contact: { phone: '', email: '', address: '', hours: 'Mon-Fri 9am-5pm' },
-  brand: { businessName: '', tagline: '', primaryColor: '#3B82F6', secondaryColor: '#1E40AF' },
-  gallery: [],
-  seo: { metaTitle: '', metaDescription: '' },
-}
-
-type Tab = 'hero' | 'about' | 'services' | 'contact' | 'brand' | 'seo'
-
-export default function WebsiteEditorPage() {
-  const [content, setContent] = useState<WebsiteContentData>(defaultContent)
-  const [activeTab, setActiveTab] = useState<Tab>('hero')
-  const [saving, setSaving] = useState(false)
-  const [publishing, setPublishing] = useState(false)
-  const [savedAt, setSavedAt] = useState<string | null>(null)
-  const [publishedAt, setPublishedAt] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    fetch('/api/portal/website')
-      .then(r => r.json())
-      .then(data => {
-        if (data.content) setContent(data.content as WebsiteContentData)
-        if (data.published_at) setPublishedAt(new Date(data.published_at).toLocaleString())
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  }, [])
-
-  const save = useCallback(async (publish = false) => {
-    if (publish) setPublishing(true)
-    else setSaving(true)
-    try {
-      const res = await fetch('/api/portal/website', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, publish }),
-      })
-      const data = await res.json()
-      setSavedAt(new Date().toLocaleTimeString())
-      if (publish && data.published_at) setPublishedAt(new Date(data.published_at).toLocaleString())
-    } finally {
-      setSaving(false)
-      setPublishing(false)
-    }
-  }, [content])
-
-  const updateHero = (field: keyof typeof content.hero, value: string) =>
-    setContent(c => ({ ...c, hero: { ...c.hero, [field]: value } }))
-  const updateAbout = (field: keyof typeof content.about, value: string) =>
-    setContent(c => ({ ...c, about: { ...c.about, [field]: value } }))
-  const updateContact = (field: keyof typeof content.contact, value: string) =>
-    setContent(c => ({ ...c, contact: { ...c.contact, [field]: value } }))
-  const updateBrand = (field: keyof typeof content.brand, value: string) =>
-    setContent(c => ({ ...c, brand: { ...c.brand, [field]: value } }))
-  const updateSeo = (field: keyof typeof content.seo, value: string) =>
-    setContent(c => ({ ...c, seo: { ...c.seo, [field]: value } }))
-
-  const addService = () =>
-    setContent(c => ({
-      ...c,
-      services: [...c.services, { id: Date.now().toString(), title: 'New Service', description: '' }],
-    }))
-  const updateService = (id: string, field: keyof Service, value: string) =>
-    setContent(c => ({
-      ...c,
-      services: c.services.map(s => (s.id === id ? { ...s, [field]: value } : s)),
-    }))
-  const removeService = (id: string) =>
-    setContent(c => ({ ...c, services: c.services.filter(s => s.id !== id) }))
-
-  const tabs: { key: Tab; label: string }[] = [
-    { key: 'hero', label: 'Hero' },
-    { key: 'about', label: 'About' },
-    { key: 'services', label: 'Services' },
-    { key: 'contact', label: 'Contact' },
-    { key: 'brand', label: 'Brand' },
-    { key: 'seo', label: 'SEO' },
-  ]
-
-  const inputClass = 'w-full bg-gray-800 text-white border border-gray-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-400'
-  const labelClass = 'block text-xs text-gray-400 mb-1'
-  const fieldClass = 'mb-4'
+function WebsiteFrame({ siteUrl }: { siteUrl: string }) {
+  const [iframeError, setIframeError] = useState(false)
 
   return (
-    <div className="flex h-screen bg-gray-900 overflow-hidden">
-      {/* LEFT: Editor Panel */}
-      <div className="w-2/5 flex flex-col bg-gray-900 border-r border-gray-700">
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-gray-700 bg-gray-850">
-          <h1 className="text-white font-semibold text-base">Website Editor</h1>
-          {savedAt && <p className="text-xs text-gray-500 mt-0.5">Saved at {savedAt}</p>}
+    <div className="flex flex-col h-full bg-gray-100">
+      <div className="flex items-center gap-2 px-3 py-2 bg-gray-200 border-b border-gray-300">
+        <div className="flex gap-1.5">
+          <div className="w-3 h-3 rounded-full bg-red-400" />
+          <div className="w-3 h-3 rounded-full bg-yellow-400" />
+          <div className="w-3 h-3 rounded-full bg-green-400" />
         </div>
-
-        {/* Tabs */}
-        <div className="flex border-b border-gray-700 bg-gray-900 overflow-x-auto">
-          {tabs.map(t => (
-            <button
-              key={t.key}
-              onClick={() => setActiveTab(t.key)}
-              className={`px-4 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
-                activeTab === t.key
-                  ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-800'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="flex-1 bg-white rounded px-3 py-1 text-xs text-gray-600 truncate border border-gray-300">
+          {siteUrl}
         </div>
-
-        {/* Form Area */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {loading ? (
-            <div className="text-gray-500 text-sm">Loading...</div>
-          ) : (
-            <>
-              {activeTab === 'hero' && (
-                <div>
-                  <div className={fieldClass}>
-                    <label className={labelClass}>Main Headline</label>
-                    <input className={inputClass} value={content.hero.headline} onChange={e => updateHero('headline', e.target.value)} />
-                  </div>
-                  <div className={fieldClass}>
-                    <label className={labelClass}>Sub-headline</label>
-                    <input className={inputClass} value={content.hero.subheadline} onChange={e => updateHero('subheadline', e.target.value)} />
-                  </div>
-                  <div className={fieldClass}>
-                    <label className={labelClass}>Button Text</label>
-                    <input className={inputClass} value={content.hero.ctaText} onChange={e => updateHero('ctaText', e.target.value)} />
-                  </div>
-                  <div className={fieldClass}>
-                    <label className={labelClass}>Button Link</label>
-                    <input className={inputClass} value={content.hero.ctaLink} onChange={e => updateHero('ctaLink', e.target.value)} />
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'about' && (
-                <div>
-                  <div className={fieldClass}>
-                    <label className={labelClass}>Section Title</label>
-                    <input className={inputClass} value={content.about.title} onChange={e => updateAbout('title', e.target.value)} />
-                  </div>
-                  <div className={fieldClass}>
-                    <label className={labelClass}>About Text</label>
-                    <textarea rows={8} className={inputClass} value={content.about.body} onChange={e => updateAbout('body', e.target.value)} />
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'services' && (
-                <div>
-                  {content.services.map((svc, i) => (
-                    <div key={svc.id} className="mb-5 p-3 bg-gray-800 rounded border border-gray-700">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs text-gray-400 font-medium">Service {i + 1}</span>
-                        <button onClick={() => removeService(svc.id)} className="text-red-400 hover:text-red-300 text-xs">Remove</button>
-                      </div>
-                      <div className={fieldClass}>
-                        <label className={labelClass}>Title</label>
-                        <input className={inputClass} value={svc.title} onChange={e => updateService(svc.id, 'title', e.target.value)} />
-                      </div>
-                      <div>
-                        <label className={labelClass}>Description</label>
-                        <textarea rows={3} className={inputClass} value={svc.description} onChange={e => updateService(svc.id, 'description', e.target.value)} />
-                      </div>
-                    </div>
-                  ))}
-                  <button onClick={addService} className="w-full py-2 text-sm text-blue-400 border border-blue-400 border-dashed rounded hover:bg-blue-400/10 transition-colors">
-                    + Add Service
-                  </button>
-                </div>
-              )}
-
-              {activeTab === 'contact' && (
-                <div>
-                  {(['phone', 'email', 'address', 'hours'] as const).map(field => (
-                    <div key={field} className={fieldClass}>
-                      <label className={labelClass}>{field.charAt(0).toUpperCase() + field.slice(1)}</label>
-                      <input className={inputClass} value={content.contact[field]} onChange={e => updateContact(field, e.target.value)} />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {activeTab === 'brand' && (
-                <div>
-                  <div className={fieldClass}>
-                    <label className={labelClass}>Business Name</label>
-                    <input className={inputClass} value={content.brand.businessName} onChange={e => updateBrand('businessName', e.target.value)} />
-                  </div>
-                  <div className={fieldClass}>
-                    <label className={labelClass}>Tagline</label>
-                    <input className={inputClass} value={content.brand.tagline} onChange={e => updateBrand('tagline', e.target.value)} />
-                  </div>
-                  <div className="flex gap-4">
-                    <div className="flex-1">
-                      <label className={labelClass}>Primary Color</label>
-                      <div className="flex gap-2 items-center">
-                        <input type="color" value={content.brand.primaryColor} onChange={e => updateBrand('primaryColor', e.target.value)} className="w-10 h-10 rounded cursor-pointer bg-transparent border-0" />
-                        <input className={`${inputClass} flex-1`} value={content.brand.primaryColor} onChange={e => updateBrand('primaryColor', e.target.value)} />
-                      </div>
-                    </div>
-                    <div className="flex-1">
-                      <label className={labelClass}>Secondary Color</label>
-                      <div className="flex gap-2 items-center">
-                        <input type="color" value={content.brand.secondaryColor} onChange={e => updateBrand('secondaryColor', e.target.value)} className="w-10 h-10 rounded cursor-pointer bg-transparent border-0" />
-                        <input className={`${inputClass} flex-1`} value={content.brand.secondaryColor} onChange={e => updateBrand('secondaryColor', e.target.value)} />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'seo' && (
-                <div>
-                  <div className={fieldClass}>
-                    <label className={labelClass}>Meta Title</label>
-                    <input className={inputClass} value={content.seo.metaTitle} onChange={e => updateSeo('metaTitle', e.target.value)} />
-                  </div>
-                  <div className={fieldClass}>
-                    <label className={labelClass}>Meta Description</label>
-                    <textarea rows={4} className={inputClass} value={content.seo.metaDescription} onChange={e => updateSeo('metaDescription', e.target.value)} />
-                  </div>
-                  <p className="text-xs text-gray-500">SEO settings help search engines understand your website content.</p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Save/Publish Buttons */}
-        <div className="p-4 border-t border-gray-700 bg-gray-900 space-y-2">
-          {publishedAt && <p className="text-xs text-green-400">Last published: {publishedAt}</p>}
-          <div className="flex gap-2">
-            <button
-              onClick={() => save(false)}
-              disabled={saving || loading}
-              className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded font-medium disabled:opacity-50 transition-colors"
+        <a
+          href={siteUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-blue-600 hover:text-blue-800 whitespace-nowrap"
+        >
+          Open ↗
+        </a>
+      </div>
+      {iframeError ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
+          <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+              d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+          </svg>
+          <div>
+            <p className="text-gray-600 font-medium mb-1">Website can&apos;t be embedded</p>
+            <p className="text-gray-500 text-sm mb-3">This site blocks embedding for security reasons.</p>
+            <a
+              href={siteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700"
             >
-              {saving ? 'Saving...' : 'Save Draft'}
-            </button>
-            <button
-              onClick={() => save(true)}
-              disabled={publishing || loading}
-              className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded font-medium disabled:opacity-50 transition-colors"
-            >
-              {publishing ? 'Publishing...' : 'Publish'}
-            </button>
+              Open in new tab ↗
+            </a>
           </div>
         </div>
-      </div>
+      ) : (
+        <iframe
+          src={siteUrl}
+          className="flex-1 w-full border-0"
+          onError={() => setIframeError(true)}
+          sandbox="allow-scripts allow-same-origin allow-forms"
+          title="Client website preview"
+        />
+      )}
+    </div>
+  )
+}
 
-      {/* RIGHT: Live Preview */}
-      <div className="w-3/5 overflow-y-auto bg-white">
-        <LivePreview content={content} />
+function NoWebsiteState() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-gray-50">
+      <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-4">
+        <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+            d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+        </svg>
+      </div>
+      <h2 className="text-gray-700 font-semibold text-xl mb-2">No Website Connected</h2>
+      <p className="text-gray-500 text-sm max-w-xs mb-4">
+        Your website hasn&apos;t been linked to this editor yet. Contact your NGF Systems administrator to connect your website URL.
+      </p>
+      <div className="bg-blue-50 border border-blue-200 rounded-lg px-5 py-4 max-w-sm text-left">
+        <p className="text-blue-800 text-xs font-medium mb-1">Once connected, you can:</p>
+        <ul className="text-blue-700 text-xs space-y-1">
+          <li>• View your live website here</li>
+          <li>• Manage your website content on the left</li>
+          <li>• Publish updates directly from this panel</li>
+        </ul>
       </div>
     </div>
   )
 }
 
-function LivePreview({ content }: { content: WebsiteContentData }) {
-  const { hero, about, services, contact, brand } = content
-  const primary = brand.primaryColor || '#3B82F6'
-  const secondary = brand.secondaryColor || '#1E40AF'
-  const businessName = brand.businessName || 'Your Business'
+export default function WebsitePage() {
+  const [websiteData, setWebsiteData] = useState<WebsiteData | null>(null)
+  const [siteUrl, setSiteUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [activeTab, setActiveTab] = useState<'hero' | 'about' | 'services' | 'contact' | 'brand' | 'seo'>('hero')
+  const [content, setContent] = useState<Record<string, unknown>>({})
+
+  useEffect(() => {
+    fetch('/api/portal/website')
+      .then(r => r.json())
+      .then((data: WebsiteData) => {
+        setWebsiteData(data)
+        setContent(data.content as Record<string, unknown>)
+        setSiteUrl(data.site_url ?? null)
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+  }, [])
+
+  const handleSave = async (publish = false) => {
+    setSaving(true)
+    try {
+      await fetch('/api/portal/website', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, publish }),
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const updateContent = (section: string, field: string, value: string) => {
+    setContent(prev => ({
+      ...prev,
+      [section]: { ...(prev[section] as Record<string, unknown>), [field]: value },
+    }))
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-900">
+        <div className="text-white">Loading...</div>
+      </div>
+    )
+  }
+
+  const hero = (content.hero || {}) as Record<string, string>
+  const about = (content.about || {}) as Record<string, string>
+  const contact = (content.contact || {}) as Record<string, string>
+  const brand = (content.brand || {}) as Record<string, string>
+  const seo = (content.seo || {}) as Record<string, string>
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', fontSize: 14 }}>
-      {/* Nav */}
-      <nav style={{ background: primary, padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ color: 'white', fontWeight: 700, fontSize: 18 }}>{businessName}</span>
-        <div style={{ display: 'flex', gap: 20 }}>
-          {['Home', 'About', 'Services', 'Contact'].map(link => (
-            <span key={link} style={{ color: 'rgba(255,255,255,0.85)', cursor: 'pointer', fontSize: 13 }}>{link}</span>
-          ))}
-        </div>
-      </nav>
-
-      {/* Hero */}
-      <div style={{ background: `linear-gradient(135deg, ${primary}, ${secondary})`, padding: '64px 40px', textAlign: 'center' }}>
-        <h1 style={{ color: 'white', fontSize: 36, fontWeight: 800, margin: '0 0 12px' }}>{hero.headline}</h1>
-        <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: 18, margin: '0 0 28px' }}>{hero.subheadline}</p>
-        <a href={hero.ctaLink} style={{ background: 'white', color: primary, padding: '12px 28px', borderRadius: 6, fontWeight: 600, textDecoration: 'none', fontSize: 15 }}>
-          {hero.ctaText}
-        </a>
-      </div>
-
-      {/* About */}
-      <div style={{ padding: '48px 40px', background: '#f9fafb' }}>
-        <h2 style={{ color: '#111', fontSize: 26, fontWeight: 700, marginBottom: 16 }}>{about.title}</h2>
-        <p style={{ color: '#555', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{about.body}</p>
-      </div>
-
-      {/* Services */}
-      <div style={{ padding: '48px 40px', background: 'white' }}>
-        <h2 style={{ color: '#111', fontSize: 26, fontWeight: 700, marginBottom: 24, textAlign: 'center' }}>Our Services</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 20 }}>
-          {services.map(svc => (
-            <div key={svc.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 20, borderTop: `3px solid ${primary}` }}>
-              <h3 style={{ color: '#111', fontSize: 16, fontWeight: 600, marginBottom: 8 }}>{svc.title}</h3>
-              <p style={{ color: '#666', fontSize: 13, lineHeight: 1.5 }}>{svc.description}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Contact */}
-      <div style={{ padding: '48px 40px', background: '#f9fafb' }} id="contact">
-        <h2 style={{ color: '#111', fontSize: 26, fontWeight: 700, marginBottom: 24 }}>Contact Us</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          {contact.phone && <div><span style={{ fontWeight: 600, color: '#444' }}>Phone: </span><span style={{ color: '#555' }}>{contact.phone}</span></div>}
-          {contact.email && <div><span style={{ fontWeight: 600, color: '#444' }}>Email: </span><span style={{ color: '#555' }}>{contact.email}</span></div>}
-          {contact.address && <div><span style={{ fontWeight: 600, color: '#444' }}>Address: </span><span style={{ color: '#555' }}>{contact.address}</span></div>}
-          {contact.hours && <div><span style={{ fontWeight: 600, color: '#444' }}>Hours: </span><span style={{ color: '#555' }}>{contact.hours}</span></div>}
-          {!contact.phone && !contact.email && !contact.address && (
-            <p style={{ color: '#aaa', fontStyle: 'italic' }}>Add your contact info in the Contact tab</p>
+    <div className="flex h-screen bg-gray-900">
+      {/* Left panel - editor */}
+      <div className="w-96 flex-shrink-0 flex flex-col bg-gray-900 border-r border-gray-700">
+        <div className="p-4 border-b border-gray-700">
+          <h1 className="text-white font-semibold text-lg">Website Editor</h1>
+          {websiteData?.published_at && (
+            <p className="text-gray-400 text-xs mt-1">
+              Last published: {new Date(websiteData.published_at).toLocaleDateString()}
+            </p>
           )}
         </div>
+
+        {/* Tab navigation */}
+        <div className="flex flex-wrap gap-1 p-3 border-b border-gray-700">
+          {(['hero', 'about', 'services', 'contact', 'brand', 'seo'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-3 py-1 rounded text-xs font-medium capitalize transition-colors ${
+                activeTab === tab
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {activeTab === 'hero' && (
+            <>
+              <div>
+                <label className="block text-gray-400 text-xs mb-1">Headline</label>
+                <input
+                  value={hero.headline || ''}
+                  onChange={e => updateContent('hero', 'headline', e.target.value)}
+                  className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-400 text-xs mb-1">Subheadline</label>
+                <input
+                  value={hero.subheadline || ''}
+                  onChange={e => updateContent('hero', 'subheadline', e.target.value)}
+                  className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-400 text-xs mb-1">CTA Button Text</label>
+                <input
+                  value={hero.ctaText || ''}
+                  onChange={e => updateContent('hero', 'ctaText', e.target.value)}
+                  className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+            </>
+          )}
+
+          {activeTab === 'about' && (
+            <>
+              <div>
+                <label className="block text-gray-400 text-xs mb-1">Section Title</label>
+                <input
+                  value={about.title || ''}
+                  onChange={e => updateContent('about', 'title', e.target.value)}
+                  className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-400 text-xs mb-1">Body Text</label>
+                <textarea
+                  value={about.body || ''}
+                  onChange={e => updateContent('about', 'body', e.target.value)}
+                  rows={6}
+                  className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none resize-none"
+                />
+              </div>
+            </>
+          )}
+
+          {activeTab === 'contact' && (
+            <>
+              {(['phone', 'email', 'address', 'hours'] as const).map(field => (
+                <div key={field}>
+                  <label className="block text-gray-400 text-xs mb-1 capitalize">{field}</label>
+                  <input
+                    value={contact[field] || ''}
+                    onChange={e => updateContent('contact', field, e.target.value)}
+                    className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              ))}
+            </>
+          )}
+
+          {activeTab === 'brand' && (
+            <>
+              <div>
+                <label className="block text-gray-400 text-xs mb-1">Business Name</label>
+                <input
+                  value={brand.businessName || ''}
+                  onChange={e => updateContent('brand', 'businessName', e.target.value)}
+                  className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-400 text-xs mb-1">Tagline</label>
+                <input
+                  value={brand.tagline || ''}
+                  onChange={e => updateContent('brand', 'tagline', e.target.value)}
+                  className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-400 text-xs mb-1">Primary Color</label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="color"
+                    value={brand.primaryColor || '#3B82F6'}
+                    onChange={e => updateContent('brand', 'primaryColor', e.target.value)}
+                    className="w-10 h-8 rounded cursor-pointer border-0"
+                  />
+                  <span className="text-gray-400 text-sm">{brand.primaryColor || '#3B82F6'}</span>
+                </div>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'seo' && (
+            <>
+              <div>
+                <label className="block text-gray-400 text-xs mb-1">Meta Title</label>
+                <input
+                  value={seo.metaTitle || ''}
+                  onChange={e => updateContent('seo', 'metaTitle', e.target.value)}
+                  className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-400 text-xs mb-1">Meta Description</label>
+                <textarea
+                  value={seo.metaDescription || ''}
+                  onChange={e => updateContent('seo', 'metaDescription', e.target.value)}
+                  rows={4}
+                  className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 border border-gray-600 focus:border-blue-500 focus:outline-none resize-none"
+                />
+              </div>
+            </>
+          )}
+
+          {activeTab === 'services' && (
+            <p className="text-gray-400 text-sm">Services editing coming soon.</p>
+          )}
+        </div>
+
+        {/* Save buttons */}
+        <div className="p-4 border-t border-gray-700 flex gap-2">
+          <button
+            onClick={() => handleSave(false)}
+            disabled={saving}
+            className="flex-1 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium py-2 rounded transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save Draft'}
+          </button>
+          <button
+            onClick={() => handleSave(true)}
+            disabled={saving}
+            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 rounded transition-colors disabled:opacity-50"
+          >
+            Publish
+          </button>
+        </div>
       </div>
 
-      {/* Footer */}
-      <div style={{ background: secondary, padding: '24px 40px', textAlign: 'center' }}>
-        <p style={{ color: 'rgba(255,255,255,0.7)', margin: 0, fontSize: 13 }}>
-          &copy; {new Date().getFullYear()} {businessName}
-          {brand.tagline ? ` — ${brand.tagline}` : ''}
-        </p>
+      {/* Right panel - website view */}
+      <div className="flex-1 overflow-hidden">
+        {siteUrl ? <WebsiteFrame siteUrl={siteUrl} /> : <NoWebsiteState />}
       </div>
     </div>
   )
