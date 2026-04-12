@@ -34,6 +34,18 @@ export async function GET() {
   })
 }
 
+
+function isValidContent(c: unknown): boolean {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return false
+  const obj = c as Record<string, unknown>
+  const required = ['hero', 'about', 'services', 'contact', 'brand', 'seo']
+  if (!required.every(k => k in obj)) return false
+  if (!Array.isArray(obj.services)) return false
+  const brand = obj.brand as Record<string, unknown>
+  if (typeof brand?.primaryColor !== 'string') return false
+  return true
+}
+
 export async function PUT(request: NextRequest) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -41,6 +53,7 @@ export async function PUT(request: NextRequest) {
   if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 })
   const body = await request.json()
   const { content, publish } = body
+  if (!isValidContent(content)) return NextResponse.json({ error: 'Invalid content structure' }, { status: 400 })
   const updated = await db.websiteContent.upsert({
     where: { client_id: client.id },
     update: { content, ...(publish ? { published_at: new Date() } : {}) },
