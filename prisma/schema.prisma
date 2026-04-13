@@ -61,6 +61,7 @@ model Project {
   client    Client?  @relation(fields: [client_id], references: [id], onDelete: SetNull)
   tasks     Task[]
 
+  @@index([client_id])
   @@map("projects")
 }
 
@@ -85,6 +86,7 @@ model TimeEntry {
   created    DateTime @default(now())
   updated    DateTime @updatedAt
 
+  @@index([client_id])
   @@map("time_entries")
 }
 
@@ -160,6 +162,7 @@ model Contract {
   created   DateTime @default(now())
   updated   DateTime @updatedAt
 
+  @@index([client_id])
   @@map("contracts")
 }
 
@@ -191,6 +194,7 @@ model ChangeRequest {
   created       DateTime @default(now())
   updated       DateTime @updatedAt
 
+  @@index([client_id])
   @@map("change_requests")
 }
 
@@ -207,6 +211,7 @@ model SiteAnalytics {
   created      DateTime @default(now())
   updated      DateTime @updatedAt
 
+  @@index([client_id])
   @@map("site_analytics")
 }
 
@@ -218,6 +223,7 @@ model ProjectRequest {
   created     DateTime @default(now())
   updated     DateTime @updatedAt
 
+  @@index([client_id])
   @@map("project_requests")
 }
 
