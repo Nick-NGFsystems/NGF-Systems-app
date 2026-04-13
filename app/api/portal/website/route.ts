@@ -31,9 +31,9 @@ export async function GET() {
       ...baseDefaultContent,
       brand: {
         ...baseDefaultContent.brand,
-        businessName: ((client.config as unknown) as Record<string, string> | null)?.businessName || client.name || '',
-        primaryColor: ((client.config as unknown) as Record<string, string> | null)?.primaryColor || '#3B82F6',
-        secondaryColor: ((client.config as unknown) as Record<string, string> | null)?.secondaryColor || '#1E40AF',
+        businessName: client.business || client.name || '',
+        primaryColor: '#3B82F6',
+        secondaryColor: '#1E40AF',
       },
       contact: {
         ...baseDefaultContent.contact,
@@ -45,7 +45,7 @@ export async function GET() {
   }
   return NextResponse.json({
     ...websiteContent,
-    site_url: ((client.config as unknown) as Record<string, string> | null)?.site_url ?? null,
+    site_url: client.config?.site_url ?? null,
     client_id: client.id,
   })
 }
