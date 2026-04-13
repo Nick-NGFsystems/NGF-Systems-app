@@ -1,20 +1,15 @@
+import { auth } from '@clerk/nextjs/server'
+import { redirect } from 'next/navigation'
+import { getClientConfig } from '@/lib/portal'
+import { db } from '@/lib/db'
 import Link from 'next/link'
 
-interface StatCard {
-  label: string
-  value: string
-}
+export const dynamic = 'force-dynamic'
 
 interface QuickAction {
   label: string
   href: string
 }
-
-const statCards: StatCard[] = [
-  { label: 'Active Projects', value: '0' },
-  { label: 'Open Requests', value: '0' },
-  { label: 'Next Invoice Due', value: 'TBD' },
-]
 
 const quickActions: QuickAction[] = [
   { label: 'Request a Change', href: '/portal/portal-request' },
@@ -22,15 +17,50 @@ const quickActions: QuickAction[] = [
   { label: 'My Website', href: '/portal/portal-website' },
 ]
 
-export default function PortalDashboardPage() {
+export default async function PortalDashboardPage() {
+  const { userId } = await auth()
+  if (!userId) redirect('/sign-in')
+
+  const client = await getClientConfig(userId)
+  if (!client?.config) redirect('/unauthorized')
+
+  // Fetch real stats in parallel
+  const [activeProjects, openRequests, subscription] = await Promise.all([
+    db.project.count({
+      where: { client_id: client.id, status: { not: 'COMPLETED' } },
+    }),
+    db.projectRequest.count({
+      where: { client_id: client.id },
+    }),
+    db.subscription.findUnique({
+      where: { client_id: client.id },
+    }),
+  ])
+
+  const nextInvoiceDate = subscription?.current_period_end
+    ? new Date(subscription.current_period_end).toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+      })
+    : 'N/A'
+
+  const statCards = [
+    { label: 'Active Projects', value: String(activeProjects) },
+    { label: 'Open Requests', value: String(openRequests) },
+    { label: 'Next Invoice Due', value: nextInvoiceDate },
+  ]
+
   return (
     <section className="space-y-10">
-      <header className="space-y-2">
-        <h1 className="font-sans text-3xl font-semibold tracking-tight text-slate-900 md:text-4xl">
-          Welcome back
-        </h1>
-        <p className="text-sm text-gray-500">Track your website activity and requests from one place.</p>
-      </header>
+      <section>
+        <header className="space-y-2">
+          <h1 className="font-sans text-3xl font-semibold tracking-tight text-slate-900 md:text-4xl xl">
+            Welcome back
+          </h1>
+          <p className="text-sm text-gray-500">
+            Here&apos;s an overview of your account.
+          </p>
+        </header>
+      </section>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {statCards.map((card) => (
