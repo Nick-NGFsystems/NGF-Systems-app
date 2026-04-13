@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 
-const defaultContent = {
+const baseDefaultContent = {
   hero: { headline: 'Welcome to Our Business', subheadline: 'We provide excellent services', ctaText: 'Get In Touch', ctaLink: '#contact' },
   about: { title: 'About Us', body: 'Tell your story here...' },
   services: [
@@ -26,38 +26,43 @@ export async function GET() {
   if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 })
   let websiteContent = await db.websiteContent.findUnique({ where: { client_id: client.id } })
   if (!websiteContent) {
-    websiteContent = await db.websiteContent.create({ data: { client_id: client.id, content: defaultContent } })
+    // Seed business name from client config or client name
+    const seededContent = {
+      ...baseDefaultContent,
+      brand: {
+        ...baseDefaultContent.brand,
+        businessName: ((client.config as unknown) as Record<string, string> | null)?.businessName || client.name || '',
+        primaryColor: ((client.config as unknown) as Record<string, string> | null)?.primaryColor || '#3B82F6',
+        secondaryColor: ((client.config as unknown) as Record<string, string> | null)?.secondaryColor || '#1E40AF',
+      },
+      contact: {
+        ...baseDefaultContent.contact,
+        phone: client.phone || '',
+        email: client.email || '',
+      },
+    }
+    websiteContent = await db.websiteContent.create({ data: { client_id: client.id, content: seededContent } })
   }
   return NextResponse.json({
     ...websiteContent,
-    site_url: client.config?.site_url ?? null,
+    site_url: ((client.config as unknown) as Record<string, string> | null)?.site_url ?? null,
+    client_id: client.id,
   })
 }
 
-
-function isValidContent(c: unknown): boolean {
-  if (!c || typeof c !== 'object' || Array.isArray(c)) return false
-  const obj = c as Record<string, unknown>
-  const required = ['hero', 'about', 'services', 'contact', 'brand', 'seo']
-  if (!required.every(k => k in obj)) return false
-  if (!Array.isArray(obj.services)) return false
-  const brand = obj.brand as Record<string, unknown>
-  if (typeof brand?.primaryColor !== 'string') return false
-  return true
-}
-
-export async function PUT(request: NextRequest) {
+export async function POST(request: NextRequest) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const client = await db.client.findUnique({ where: { clerk_user_id: userId } })
-  if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 })
-  const body = await request.json()
-  const { content, publish } = body
-  if (!isValidContent(content)) return NextResponse.json({ error: 'Invalid content structure' }, { status: 400 })
-  const updated = await db.websiteContent.upsert({
-    where: { client_id: client.id },
-    update: { content, ...(publish ? { published_at: new Date() } : {}) },
-    create: { client_id: client.id, content, ...(publish ? { published_at: new Date() } : {}) },
+  const client = await db.client.findUnique({
+    where: { clerk_user_id: userId },
+    include: { config: true },
   })
-  return NextResponse.json(updated)
+  if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 })
+  const { content } = await request.json()
+  const websiteContent = await db.websiteContent.upsert({
+    where: { client_id: client.id },
+    update: { content },
+    create: { client_id: client.id, content },
+  })
+  return NextResponse.json(websiteContent)
 }
