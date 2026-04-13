@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
 
 export async function GET(req: NextRequest) {
   const url = req.nextUrl.searchParams.get('url')
+  const { userId } = await auth()
+  if (!userId) return new NextResponse('Unauthorized', { status: 401 })
+
   if (!url) return new NextResponse('Missing url param', { status: 400 })
 
   let target: string
