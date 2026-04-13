@@ -16,18 +16,27 @@ interface ClerkUserCreatedEvent {
   }
 }
 
+interface ClerkUserDeletedEvent {
+  type: 'user.deleted'
+  data: { id: string; deleted: true }
+}
+
 interface ClerkGenericEvent {
   type: string
   data?: unknown
 }
 
-type ClerkWebhookEvent = ClerkUserCreatedEvent | ClerkGenericEvent
+type ClerkWebhookEvent = ClerkUserCreatedEvent | ClerkUserDeletedEvent | ClerkGenericEvent
 
 function isClerkWebhookEvent(value: unknown): value is ClerkWebhookEvent {
   if (typeof value !== 'object' || value === null) return false
 
   const maybeEvent = value as { type?: unknown }
   return typeof maybeEvent.type === 'string'
+}
+
+function isUserDeletedEvent(event: ClerkWebhookEvent): event is ClerkUserDeletedEvent {
+  return event.type === 'user.deleted'
 }
 
 function isUserCreatedEvent(event: ClerkWebhookEvent): event is ClerkUserCreatedEvent {
@@ -139,6 +148,12 @@ export async function POST(req: Request): Promise<Response> {
           })
         }
       }
+    } else if (isUserDeletedEvent(verifiedPayload)) {
+      // Unlink Clerk account without deleting client record (preserves financial data)
+      await db.client.updateMany({
+        where: { clerk_user_id: verifiedPayload.data.id },
+        data: { clerk_user_id: null },
+      })
     }
 
     return NextResponse.json({ success: true })
