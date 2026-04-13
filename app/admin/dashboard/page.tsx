@@ -1,3 +1,4 @@
+import { currentUser } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 import Link from 'next/link'
 
@@ -19,10 +20,16 @@ const quickActions: QuickAction[] = [
   { label: 'New Invoice', href: '/admin/finances' },
 ]
 
+function getGreeting(): string {
+  const h = new Date().getHours()
+  return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"
+}
+
 export default async function DashboardPage() {
   const now = new Date()
 
-  const [totalClients, activeProjects, recurringIncomeResult] = await Promise.all([
+  const [user, totalClients, activeProjects, recurringIncomeResult] = await Promise.all([
+    currentUser(),
     db.client.count({
       where: {
         status: 'ACTIVE',
@@ -43,6 +50,9 @@ export default async function DashboardPage() {
     return sum + (item.frequency === 'YEARLY' ? item.amount / 12 : item.amount)
   }, 0)
 
+  const firstName = user?.firstName ?? 'Nick'
+  const greeting = getGreeting()
+
   const statCards: StatCard[] = [
     { label: 'Total Clients', value: totalClients.toString() },
     { label: 'Active Projects', value: activeProjects.toString() },
@@ -59,7 +69,7 @@ export default async function DashboardPage() {
     <section className="space-y-10">
       <header className="space-y-2">
         <h1 className="font-sans text-3xl font-semibold tracking-tight text-slate-900 md:text-4xl">
-          Good morning, Nick
+          {greeting}, {firstName}
         </h1>
         <p className="text-sm text-gray-500">Here is your business snapshot for today.</p>
       </header>
