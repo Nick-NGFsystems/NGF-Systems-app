@@ -20,7 +20,7 @@ const FIELD_LABELS: Record<string, string> = {
   'hero.headline': 'Headline', 'hero.subheadline': 'Subheadline',
   'hero.ctaText': 'Button Text', 'hero.ctaLink': 'Button Link',
   'about.title': 'Section Title', 'about.body': 'Body Text',
-  'contact.phone': 'Phone', 'contact.email': 'Email',
+  'contact.phone': 'Phone', 'contact.email': 'Email',h
   'contact.address': 'Address', 'contact.hours': 'Hours',
   'brand.businessName': 'Business Name', 'brand.tagline': 'Tagline',
   'brand.primaryColor': 'Primary Color', 'brand.secondaryColor': 'Secondary Color',
@@ -215,9 +215,9 @@ export default function WebsiteEditorPage() {
               {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'error' ? '✗ Error' : 'Save'}
             </button>
           </div>
-          <a href={`https://${siteUrl}`} target="_blank" rel="noopener noreferrer"
+          <a href={siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`} target="_blank" rel="noopener noreferrer"
             className="mt-2 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline truncate">
-            <span className="truncate">{siteUrl}</span>
+            <span className="truncate">{siteUrl.replace(/^https?:\/\//, '')}</span>
             <span className="flex-shrink-0">↗</span>
           </a>
         </div>
