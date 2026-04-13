@@ -9,6 +9,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  try {
   const { returnUrl } = await req.json().catch(() => ({}))
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.ngfsystems.com'
 
@@ -29,4 +30,8 @@ export async function POST(req: NextRequest) {
   })
 
   return NextResponse.json({ url: session.url })
+  } catch (err) {
+    console.error('[stripe create-portal]', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
 }

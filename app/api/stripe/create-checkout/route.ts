@@ -10,6 +10,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  try {
   const { planKey, successUrl, cancelUrl } = await req.json()
 
   if (!planKey || !(planKey in PLANS)) {
@@ -96,4 +97,8 @@ export async function POST(req: NextRequest) {
   })
 
   return NextResponse.json({ url: session.url })
+  } catch (err) {
+    console.error('[stripe create-checkout]', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
 }
