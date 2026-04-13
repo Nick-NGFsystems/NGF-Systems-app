@@ -17,7 +17,17 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const upstream = await fetch(target, {
+    // Block SSRF: reject private/internal IP ranges and hostnames
+    try {
+      const parsed = new URL(target)
+      const h = parsed.hostname
+      if (/^(localhost|127\.|\.10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1)/i.test(h)) {
+        return new NextResponse('Forbidden', { status: 403 })
+      }
+    } catch {
+      return new NextResponse('Invalid url', { status: 400 })
+    }
+        const upstream = await fetch(target, {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (compatible; NGF-SitePreview/1.0)',
