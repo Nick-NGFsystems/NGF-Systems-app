@@ -64,6 +64,8 @@ const defaultContentForm: ContentFormState = {
   field_value: '',
 }
 
+type VerifyStatus = 'idle' | 'verifying' | 'ok' | 'fail'
+
 function priorityBadgeClass(priority: string) {
   if (priority === 'URGENT') return 'border-red-200 bg-red-50 text-red-700'
   if (priority === 'LOW') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
@@ -81,53 +83,75 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
   const [config, setConfig] = useState<PortalConfigState>(initialConfig)
   const [fields, setFields] = useState<SiteContentField[]>(initialFields)
   const [requests, setRequests] = useState<ChangeRequestItem[]>(initialRequests)
-
   const [isSavingConfig, setIsSavingConfig] = useState(false)
-  const [configMessage, setConfigMessage] = useState<string | null>(null)
+  const [configMessage, setConfigMessage] = useState<{ text: string; ok: boolean } | null>(null)
+
+  // Site URL verification
+  const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>('idle')
+  const [verifyMessage, setVerifyMessage] = useState<string | null>(null)
 
   const [isFieldModalOpen, setIsFieldModalOpen] = useState(false)
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null)
   const [fieldForm, setFieldForm] = useState<ContentFormState>(defaultContentForm)
   const [fieldError, setFieldError] = useState<string | null>(null)
   const [isSavingField, setIsSavingField] = useState(false)
-
   const [requestMessage, setRequestMessage] = useState<string | null>(null)
   const [requestSavingId, setRequestSavingId] = useState<string | null>(null)
 
   const requestDrafts = useMemo(() => {
     const initial: Record<string, { status: string; admin_comment: string }> = {}
     for (const req of requests) {
-      initial[req.id] = {
-        status: req.status,
-        admin_comment: req.admin_comment ?? '',
-      }
+      initial[req.id] = { status: req.status, admin_comment: req.admin_comment ?? '' }
     }
     return initial
   }, [requests])
 
   const [requestEdits, setRequestEdits] = useState<Record<string, { status: string; admin_comment: string }>>(requestDrafts)
 
+  async function verifySiteUrl() {
+    const url = config.site_url.trim()
+    if (!url) return
+    setVerifyStatus('verifying')
+    setVerifyMessage(null)
+    try {
+      const res = await fetch('/api/admin/verify-ngf-site', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+      const result = await res.json() as { compatible: boolean; error?: string }
+      if (result.compatible) {
+        setVerifyStatus('ok')
+        setVerifyMessage('NGF-compatible site confirmed')
+      } else {
+        setVerifyStatus('fail')
+        setVerifyMessage(result.error ?? 'Site verification failed')
+      }
+    } catch {
+      setVerifyStatus('fail')
+      setVerifyMessage('Could not reach verification service')
+    }
+  }
+
   async function saveConfig() {
     setConfigMessage(null)
     setIsSavingConfig(true)
-
     try {
       const response = await fetch(`/api/admin/portal/${clientId}/config`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       })
-
-      const result = await response.json()
-
+      const result = await response.json() as { success: boolean; error?: string }
       if (!response.ok || !result.success) {
-        setConfigMessage(result.error || 'Failed to save portal settings')
+        setConfigMessage({ text: result.error ?? 'Failed to save portal settings', ok: false })
         return
       }
-
-      setConfigMessage('Portal settings saved')
+      setConfigMessage({ text: 'Portal settings saved', ok: true })
+      // If site_url was just saved successfully, mark it as verified
+      if (config.site_url.trim()) setVerifyStatus('ok')
     } catch {
-      setConfigMessage('Failed to save portal settings')
+      setConfigMessage({ text: 'Failed to save portal settings', ok: false })
     } finally {
       setIsSavingConfig(false)
     }
@@ -156,25 +180,20 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
   async function saveField() {
     setFieldError(null)
     setIsSavingField(true)
-
     try {
       const endpoint = editingFieldId
         ? `/api/admin/portal/${clientId}/content/${editingFieldId}`
         : `/api/admin/portal/${clientId}/content`
-
       const response = await fetch(endpoint, {
         method: editingFieldId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(fieldForm),
       })
-
-      const result = await response.json()
-
+      const result = await response.json() as { success: boolean; error?: string; data?: SiteContentField }
       if (!response.ok || !result.success) {
-        setFieldError(result.error || 'Failed to save content field')
+        setFieldError(result.error ?? 'Failed to save content field')
         return
       }
-
       if (editingFieldId) {
         setFields((prev) =>
           prev.map((item) =>
@@ -182,8 +201,8 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
               ? {
                   ...item,
                   ...result.data,
-                  created: new Date(result.data.created).toISOString(),
-                  updated: new Date(result.data.updated).toISOString(),
+                  created: new Date(result.data!.created).toISOString(),
+                  updated: new Date(result.data!.updated).toISOString(),
                 }
               : item
           )
@@ -191,14 +210,13 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
       } else {
         setFields((prev) => [
           {
-            ...result.data,
-            created: new Date(result.data.created).toISOString(),
-            updated: new Date(result.data.updated).toISOString(),
+            ...result.data!,
+            created: new Date(result.data!.created).toISOString(),
+            updated: new Date(result.data!.updated).toISOString(),
           },
           ...prev,
         ])
       }
-
       setIsFieldModalOpen(false)
       setEditingFieldId(null)
       setFieldForm(defaultContentForm)
@@ -211,18 +229,13 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
 
   async function deleteField(fieldId: string) {
     if (!confirm('Delete this content field?')) return
-
     try {
-      const response = await fetch(`/api/admin/portal/${clientId}/content/${fieldId}`, {
-        method: 'DELETE',
-      })
-
-      const result = await response.json()
+      const response = await fetch(`/api/admin/portal/${clientId}/content/${fieldId}`, { method: 'DELETE' })
+      const result = await response.json() as { success: boolean; error?: string }
       if (!response.ok || !result.success) {
-        setFieldError(result.error || 'Failed to delete content field')
+        setFieldError(result.error ?? 'Failed to delete content field')
         return
       }
-
       setFields((prev) => prev.filter((item) => item.id !== fieldId))
     } catch {
       setFieldError('Failed to delete content field')
@@ -232,36 +245,31 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
   async function saveRequest(requestId: string) {
     const draft = requestEdits[requestId]
     if (!draft) return
-
     setRequestMessage(null)
     setRequestSavingId(requestId)
-
     try {
       const response = await fetch(`/api/admin/portal/${clientId}/requests/${requestId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(draft),
       })
-
-      const result = await response.json()
+      const result = await response.json() as { success: boolean; error?: string; data?: ChangeRequestItem }
       if (!response.ok || !result.success) {
-        setRequestMessage(result.error || 'Failed to update change request')
+        setRequestMessage(result.error ?? 'Failed to update change request')
         return
       }
-
       setRequests((prev) =>
         prev.map((item) =>
           item.id === requestId
             ? {
                 ...item,
-                status: result.data.status,
-                admin_comment: result.data.admin_comment,
-                updated: new Date(result.data.updated).toISOString(),
+                status: result.data!.status,
+                admin_comment: result.data!.admin_comment,
+                updated: new Date(result.data!.updated).toISOString(),
               }
             : item
         )
       )
-
       setRequestMessage('Change request updated')
     } catch {
       setRequestMessage('Failed to update change request')
@@ -269,6 +277,15 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
       setRequestSavingId(null)
     }
   }
+
+  const verifyButtonLabel =
+    verifyStatus === 'verifying' ? 'Testing…' : verifyStatus === 'ok' ? '✓ NGF Site' : verifyStatus === 'fail' ? '✗ Not NGF' : 'Test Site'
+  const verifyButtonClass =
+    verifyStatus === 'ok'
+      ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+      : verifyStatus === 'fail'
+      ? 'bg-red-50 border-red-300 text-red-700'
+      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
 
   return (
     <div className="space-y-6">
@@ -294,12 +311,7 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
                 <input
                   type="checkbox"
                   checked={Boolean(config[typedKey])}
-                  onChange={(event) =>
-                    setConfig((prev) => ({
-                      ...prev,
-                      [typedKey]: event.target.checked,
-                    }))
-                  }
+                  onChange={(event) => setConfig((prev) => ({ ...prev, [typedKey]: event.target.checked }))}
                   className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
               </label>
@@ -329,14 +341,36 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">Site URL</label>
-            <input
-              type="url"
-              value={config.site_url}
-              onChange={(event) => setConfig((prev) => ({ ...prev, site_url: event.target.value }))}
-              className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
-              placeholder="https://example.com"
-            />
+            <label className="block text-sm font-medium text-gray-700">
+              Site URL
+              <span className="ml-1 text-xs font-normal text-gray-400">(NGF-managed sites only)</span>
+            </label>
+            <div className="mt-1 flex gap-2">
+              <input
+                type="text"
+                value={config.site_url}
+                onChange={(event) => {
+                  setConfig((prev) => ({ ...prev, site_url: event.target.value }))
+                  setVerifyStatus('idle')
+                  setVerifyMessage(null)
+                }}
+                className="h-11 min-w-0 flex-1 rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
+                placeholder="https://client.example.com"
+              />
+              <button
+                type="button"
+                onClick={verifySiteUrl}
+                disabled={!config.site_url.trim() || verifyStatus === 'verifying'}
+                className={`h-11 flex-shrink-0 rounded-lg border px-3 text-xs font-medium transition-colors disabled:opacity-40 ${verifyButtonClass}`}
+              >
+                {verifyButtonLabel}
+              </button>
+            </div>
+            {verifyMessage && (
+              <p className={`mt-1 text-xs ${verifyStatus === 'ok' ? 'text-emerald-600' : 'text-red-600'}`}>
+                {verifyMessage}
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Site Repo</label>
@@ -359,7 +393,11 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
           >
             {isSavingConfig ? 'Saving...' : 'Save Settings'}
           </button>
-          {configMessage && <p className="text-sm text-gray-600">{configMessage}</p>}
+          {configMessage && (
+            <p className={`text-sm ${configMessage.ok ? 'text-emerald-600' : 'text-red-600'}`}>
+              {configMessage.text}
+            </p>
+          )}
         </div>
       </section>
 
@@ -377,9 +415,7 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
             Add Field
           </button>
         </div>
-
         {fieldError && <p className="mt-4 text-sm text-red-600">{fieldError}</p>}
-
         <div className="mt-5 overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead>
@@ -395,9 +431,7 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
             <tbody className="divide-y divide-gray-100">
               {fields.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-6 text-center text-sm text-gray-500">
-                    No content fields yet.
-                  </td>
+                  <td colSpan={6} className="py-6 text-center text-sm text-gray-500">No content fields yet.</td>
                 </tr>
               ) : (
                 fields.map((field) => (
@@ -436,9 +470,7 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
       <section className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <h2 className="font-sans text-xl font-semibold tracking-tight text-slate-900">Change Requests</h2>
         <p className="mt-1 text-sm text-gray-500">Review client-submitted requests and update status with internal notes.</p>
-
         {requestMessage && <p className="mt-4 text-sm text-gray-600">{requestMessage}</p>}
-
         <div className="mt-5 space-y-4">
           {requests.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
@@ -447,12 +479,8 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
           ) : (
             requests.map((item) => {
               const images = item.image_urls
-                ? item.image_urls
-                    .split(',')
-                    .map((url) => url.trim())
-                    .filter((url) => url.length > 0)
+                ? item.image_urls.split(',').map((url) => url.trim()).filter((url) => url.length > 0)
                 : []
-
               return (
                 <article key={item.id} className="rounded-lg border border-gray-100 bg-gray-50 p-4">
                   <div className="flex flex-wrap items-start justify-between gap-2">
@@ -469,11 +497,10 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
                       </span>
                     </div>
                   </div>
-
                   <p className="mt-2 text-xs text-gray-500">
-                    Submitted {new Date(item.created).toLocaleDateString()} {item.page_section ? `• ${item.page_section}` : ''}
+                    Submitted {new Date(item.created).toLocaleDateString()}
+                    {item.page_section ? ` • ${item.page_section}` : ''}
                   </p>
-
                   {images.length > 0 && (
                     <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                       {images.map((url) => (
@@ -483,7 +510,6 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
                       ))}
                     </div>
                   )}
-
                   <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
                     <div>
                       <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Status</label>
@@ -492,10 +518,7 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
                         onChange={(event) =>
                           setRequestEdits((prev) => ({
                             ...prev,
-                            [item.id]: {
-                              status: event.target.value,
-                              admin_comment: prev[item.id]?.admin_comment ?? item.admin_comment ?? '',
-                            },
+                            [item.id]: { status: event.target.value, admin_comment: prev[item.id]?.admin_comment ?? item.admin_comment ?? '' },
                           }))
                         }
                         className="mt-1 h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
@@ -515,10 +538,7 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
                           onChange={(event) =>
                             setRequestEdits((prev) => ({
                               ...prev,
-                              [item.id]: {
-                                status: prev[item.id]?.status ?? item.status,
-                                admin_comment: event.target.value,
-                              },
+                              [item.id]: { status: prev[item.id]?.status ?? item.status, admin_comment: event.target.value },
                             }))
                           }
                           className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
@@ -548,9 +568,7 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
             <h3 className="font-sans text-lg font-semibold tracking-tight text-gray-900">
               {editingFieldId ? 'Edit Content Field' : 'Add Content Field'}
             </h3>
-
             {fieldError && <p className="mt-3 text-sm text-red-600">{fieldError}</p>}
-
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Field Key</label>
@@ -561,7 +579,6 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
                   className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
                 />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700">Field Label</label>
                 <input
@@ -571,17 +588,11 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
                   className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
                 />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700">Field Type</label>
                 <select
                   value={fieldForm.field_type}
-                  onChange={(event) =>
-                    setFieldForm((prev) => ({
-                      ...prev,
-                      field_type: event.target.value as 'text' | 'richtext' | 'image' | 'url',
-                    }))
-                  }
+                  onChange={(event) => setFieldForm((prev) => ({ ...prev, field_type: event.target.value as 'text' | 'richtext' | 'image' | 'url' }))}
                   className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
                 >
                   <option value="text">text</option>
@@ -590,7 +601,6 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
                   <option value="url">url</option>
                 </select>
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700">Page Section</label>
                 <input
@@ -600,7 +610,6 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
                   className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
                 />
               </div>
-
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-gray-700">Initial Value</label>
                 <textarea
@@ -611,14 +620,10 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
                 />
               </div>
             </div>
-
             <div className="mt-5 flex gap-3">
               <button
                 type="button"
-                onClick={() => {
-                  setIsFieldModalOpen(false)
-                  setFieldError(null)
-                }}
+                onClick={() => { setIsFieldModalOpen(false); setFieldError(null) }}
                 className="h-11 flex-1 rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
               >
                 Cancel
@@ -637,4 +642,4 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
       )}
     </div>
   )
-}
+                                                               }
