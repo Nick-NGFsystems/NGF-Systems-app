@@ -19,6 +19,7 @@ const baseDefaultContent = {
 export async function GET() {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
   const client = await db.client.findUnique({
     where: { clerk_user_id: userId },
     include: { config: true },
@@ -48,11 +49,16 @@ export async function GET() {
     site_url: client.config?.site_url ?? null,
     client_id: client.id,
   })
+  } catch (err) {
+    console.error('[portal/website GET]', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
 }
 
 export async function POST(request: NextRequest) {
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
   const client = await db.client.findUnique({
     where: { clerk_user_id: userId },
     include: { config: true },
