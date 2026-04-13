@@ -71,4 +71,8 @@ export async function POST(request: NextRequest) {
     create: { client_id: client.id, content },
   })
   return NextResponse.json(websiteContent)
+  } catch (err) {
+    console.error('[portal/website POST]', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }    
 }
