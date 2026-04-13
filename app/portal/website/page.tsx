@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 
 interface ServiceItem { id: string; title: string; description: string }
+
 interface ContentBlock {
   hero: { headline: string; subheadline: string; ctaText: string; ctaLink: string }
   about: { title: string; body: string }
@@ -73,6 +74,7 @@ export default function WebsiteEditorPage() {
   const [activeSection, setActiveSection] = useState<Section>('hero')
   const [siteUrl, setSiteUrl] = useState('')
   const [clientId, setClientId] = useState('')
+  const [loading, setLoading] = useState(true)
   const [activeField, setActiveField] = useState<{ section: string; field: string; value: string; label: string } | null>(null)
 
   const pushToPreview = useCallback((c: ContentBlock) => {
@@ -143,6 +145,7 @@ export default function WebsiteEditorPage() {
         if (data?.client_id) setClientId(data.client_id as string)
       })
       .catch(() => {})
+      .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
@@ -157,38 +160,68 @@ export default function WebsiteEditorPage() {
     return () => window.removeEventListener('message', handler)
   }, [])
 
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-gray-500">Loading…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!siteUrl) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-50 p-6">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-sm border border-gray-200 p-8 text-center">
+          <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
+            <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+            </svg>
+          </div>
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Your website is on its way</h2>
+          <p className="text-sm text-gray-500 leading-relaxed mb-6">
+            The NGF team is building your website. Once it&apos;s live, you&apos;ll be able to edit your content right here &mdash; headlines, services, colors, and more.
+          </p>
+          <div className="bg-blue-50 rounded-xl px-4 py-3">
+            <p className="text-xs text-blue-600 font-medium">Have questions? Reach out to your NGF account manager.</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const services = (content.services as ServiceItem[]) || []
   const previewUrl = clientId ? `/preview?clientId=${clientId}` : '/preview'
   const sections: Section[] = ['hero', 'about', 'services', 'contact', 'brand', 'seo']
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
-      {/* Sidebar */}
       <div className="w-80 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col shadow-sm">
-        {/* Header */}
         <div className="p-4 border-b border-gray-100">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-gray-900 text-sm">Website Editor</h2>
-            <button onClick={save} disabled={saveStatus === 'saving'}
+            <button
+              onClick={save}
+              disabled={saveStatus === 'saving'}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                saveStatus === 'saving' ? 'bg-gray-100 text-gray-400 cursor-wait' :
-                saveStatus === 'saved' ? 'bg-green-100 text-green-700' :
-                saveStatus === 'error' ? 'bg-red-100 text-red-700' :
-                'bg-blue-600 hover:bg-blue-700 text-white'
+                saveStatus === 'saving' ? 'bg-gray-100 text-gray-400 cursor-wait'
+                  : saveStatus === 'saved' ? 'bg-green-100 text-green-700'
+                  : saveStatus === 'error' ? 'bg-red-100 text-red-700'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
               }`}>
               {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'error' ? '✗ Error' : 'Save'}
             </button>
           </div>
-          {siteUrl && (
-            <a href={`https://${siteUrl}`} target="_blank" rel="noopener noreferrer"
-               className="mt-2 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline truncate">
-              <span className="truncate">{siteUrl}</span>
-              <span className="flex-shrink-0">↗</span>
-            </a>
-          )}
+          <a href={`https://${siteUrl}`} target="_blank" rel="noopener noreferrer"
+            className="mt-2 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline truncate">
+            <span className="truncate">{siteUrl}</span>
+            <span className="flex-shrink-0">↗</span>
+          </a>
         </div>
 
-        {/* Section tabs */}
         <div className="flex border-b border-gray-100 overflow-x-auto flex-shrink-0">
           {sections.map(s => (
             <button key={s} onClick={() => setActiveSection(s)}
@@ -202,7 +235,6 @@ export default function WebsiteEditorPage() {
           ))}
         </div>
 
-        {/* Fields */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {activeSection === 'hero' && (
             <>
@@ -265,13 +297,11 @@ export default function WebsiteEditorPage() {
         </div>
       </div>
 
-      {/* Preview */}
       <div className="flex-1 relative bg-gray-100">
         <div className="absolute inset-2 bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
           <iframe ref={iframeRef} src={previewUrl} className="w-full h-full border-0" title="Website Preview" />
         </div>
 
-        {/* Floating field editor */}
         {activeField && (
           <div className="absolute bottom-6 right-6 w-72 bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 z-10">
             <div className="flex items-center justify-between mb-2">
@@ -281,7 +311,8 @@ export default function WebsiteEditorPage() {
                 ×
               </button>
             </div>
-            <textarea autoFocus
+            <textarea
+              autoFocus
               rows={activeField.field.includes('body') || activeField.field.includes('description') ? 4 : 2}
               value={activeField.value}
               onChange={e => {
