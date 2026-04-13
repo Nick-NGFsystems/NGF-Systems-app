@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Loading...</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1f2937; }
+    a { text-decoration: none; color: inherit; }
+
+    /* NAV */
+    nav { display: flex; align-items: center; justify-content: space-between; padding: 1rem 2rem; position: sticky; top: 0; z-index: 100; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+    nav .brand { font-weight: 700; font-size: 1.25rem; color: #fff; }
+    nav .links { display: flex; gap: 1.5rem; }
+    nav .links a { color: rgba(255,255,255,.85); font-size: .9rem; transition: opacity .2s; }
+    nav .links a:hover { opacity: 1; color: #fff; }
+
+    /* HERO */
+    #hero { padding: 5rem 2rem; text-align: center; }
+    #hero h1 { font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 800; margin-bottom: 1rem; line-height: 1.1; }
+    #hero p { font-size: 1.2rem; color: #4b5563; max-width: 640px; margin: 0 auto 2rem; }
+    #hero .cta { display: inline-block; padding: .9rem 2.2rem; border-radius: .5rem; color: #fff; font-weight: 600; font-size: 1rem; transition: opacity .2s; }
+    #hero .cta:hover { opacity: .88; }
+
+    /* SECTIONS */
+    section { padding: 4rem 2rem; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    h2 { font-size: 2rem; font-weight: 700; margin-bottom: 1.5rem; }
+
+    /* ABOUT */
+    #about p { color: #4b5563; line-height: 1.75; font-size: 1.05rem; max-width: 760px; }
+
+    /* SERVICES */
+    #services { background: #f9fafb; }
+    .services-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; margin-top: 1rem; }
+    .service-card { background: #fff; border-radius: .75rem; padding: 1.5rem; box-shadow: 0 1px 6px rgba(0,0,0,.06); }
+    .service-card h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: .5rem; }
+    .service-card p { color: #6b7280; font-size: .95rem; line-height: 1.6; }
+
+    /* CONTACT */
+    .contact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem; }
+    .contact-item label { display: block; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; margin-bottom: .25rem; }
+    .contact-item span { color: #1f2937; font-size: .95rem; }
+
+    /* FOOTER */
+    footer { padding: 2.5rem 2rem; text-align: center; color: rgba(255,255,255,.8); font-size: .9rem; }
+    footer .footer-name { font-weight: 700; font-size: 1rem; color: #fff; margin-bottom: .25rem; }
+    footer .footer-tagline { opacity: .7; margin-bottom: .5rem; }
+    footer .footer-copy { opacity: .45; font-size: .8rem; }
+
+    /* LOADING */
+    .loading { display: flex; align-items: center; justify-content: center; min-height: 100vh; font-size: 1.1rem; color: #9ca3af; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<div id="loading" class="loading">Loading site content...</div>
+<div id="site" class="hidden">
+
+  <nav id="nav">
+    <span class="brand" id="nav-brand"></span>
+    <div class="links">
+      <a href="#about">About</a>
+      <a href="#services">Services</a>
+      <a href="#contact">Contact</a>
+    </div>
+  </nav>
+
+  <section id="hero">
+    <div class="container">
+      <h1 id="hero-headline"></h1>
+      <p id="hero-sub"></p>
+      <a id="hero-cta" class="cta" href="#contact"></a>
+    </div>
+  </section>
+
+  <section id="about">
+    <div class="container">
+      <h2 id="about-title"></h2>
+      <p id="about-body"></p>
+    </div>
+  </section>
+
+  <section id="services">
+    <div class="container">
+      <h2>Our Services</h2>
+      <div class="services-grid" id="services-grid"></div>
+    </div>
+  </section>
+
+  <section id="contact">
+    <div class="container">
+      <h2>Contact Us</h2>
+      <div class="contact-grid" id="contact-grid"></div>
+    </div>
+  </section>
+
+  <footer id="footer">
+    <p class="footer-name" id="footer-name"></p>
+    <p class="footer-tagline" id="footer-tagline"></p>
+    <p class="footer-copy" id="footer-copy"></p>
+  </footer>
+
+</div>
+
+<script>
+  // CONFIG — set these when deploying for a client
+  const NGF_API = 'https://YOUR_NGF_APP_DOMAIN';
+  const CLIENT_ID = 'YOUR_CLIENT_ID';
+
+  async function loadSite() {
+    try {
+      const res = await fetch(NGF_API + '/api/public/website/' + CLIENT_ID);
+      if (!res.ok) throw new Error('No content found');
+      const data = await res.json();
+      const c = data.content;
+
+      const primary = c.brand?.primaryColor || '#3B82F6';
+      const secondary = c.brand?.secondaryColor || '#1E40AF';
+      const biz = c.brand?.businessName || 'Our Business';
+
+      // Apply brand colors
+      document.querySelector('nav').style.backgroundColor = primary;
+      document.getElementById('hero').style.background =
+        'linear-gradient(135deg, ' + primary + '22, ' + secondary + '22)';
+      document.querySelector('.cta').style.backgroundColor = primary;
+      document.querySelector('footer').style.backgroundColor = secondary;
+      document.querySelectorAll('.service-card h3').forEach(el => el.style.color = primary);
+
+      // Populate nav
+      document.getElementById('nav-brand').textContent = biz;
+      document.title = c.seo?.metaTitle || biz;
+      if (c.seo?.metaDescription) {
+        const m = document.createElement('meta');
+        m.name = 'description'; m.content = c.seo.metaDescription;
+        document.head.appendChild(m);
+      }
+
+      // Hero
+      document.getElementById('hero-headline').textContent = c.hero?.headline || '';
+      document.getElementById('hero-sub').textContent = c.hero?.subheadline || '';
+      const ctaEl = document.getElementById('hero-cta');
+      ctaEl.textContent = c.hero?.ctaText || 'Get In Touch';
+      ctaEl.href = c.hero?.ctaLink || '#contact';
+
+      // About
+      document.getElementById('about-title').textContent = c.about?.title || 'About Us';
+      document.getElementById('about-body').textContent = c.about?.body || '';
+
+      // Services
+      const grid = document.getElementById('services-grid');
+      grid.innerHTML = '';
+      (c.services || []).forEach(svc => {
+        const card = document.createElement('div');
+        card.className = 'service-card';
+        card.innerHTML =
+          '<h3 style="color:' + primary + '">' + svc.title + '</h3>' +
+          '<p>' + svc.description + '</p>';
+        grid.appendChild(card);
+      });
+      if (!c.services || c.services.length === 0) {
+        document.getElementById('services').style.display = 'none';
+      }
+
+      // Contact
+      const contactGrid = document.getElementById('contact-grid');
+      contactGrid.innerHTML = '';
+      const fields = [
+        ['Phone', c.contact?.phone],
+        ['Email', c.contact?.email],
+        ['Address', c.contact?.address],
+        ['Hours', c.contact?.hours],
+      ];
+      fields.forEach(([label, val]) => {
+        if (!val) return;
+        const item = document.createElement('div');
+        item.className = 'contact-item';
+        item.innerHTML = '<label>' + label + '</label><span>' + val + '</span>';
+        contactGrid.appendChild(item);
+      });
+
+      // Footer
+      document.getElementById('footer-name').textContent = biz;
+      document.getElementById('footer-tagline').textContent = c.brand?.tagline || '';
+      document.getElementById('footer-copy').textContent =
+        '\u00a9 ' + new Date().getFullYear() + ' ' + biz + '. All rights reserved.';
+
+      // Show site
+      document.getElementById('loading').classList.add('hidden');
+      document.getElementById('site').classList.remove('hidden');
+
+    } catch (err) {
+      document.getElementById('loading').textContent =
+        'Unable to load site content. Please try again later.';
+      console.error(err);
+    }
+  }
+
+  loadSite();
+</script>
+</body>
+</html>
