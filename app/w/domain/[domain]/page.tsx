@@ -4,6 +4,13 @@ import type { Metadata } from 'next'
 
 export const dynamic = 'force-dynamic'
 
+export async function generateMetadata() {
+    return {
+          other: {
+                  'ngf-public-api': 'https://app.ngfsystems.com/api/public/website'
+          }
+    }
+
 interface WebsiteContent {
   hero: { headline: string; subheadline: string; ctaText: string; ctaLink: string }
   about: { title: string; body: string }
