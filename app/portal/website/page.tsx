@@ -20,7 +20,7 @@ const FIELD_LABELS: Record<string, string> = {
   'hero.headline': 'Headline', 'hero.subheadline': 'Subheadline',
   'hero.ctaText': 'Button Text', 'hero.ctaLink': 'Button Link',
   'about.title': 'Section Title', 'about.body': 'Body Text',
-  'contact.phone': 'Phone', 'contact.email': 'Email',h
+  'contact.phone': 'Phone', 'contact.email': 'Email',
   'contact.address': 'Address', 'contact.hours': 'Hours',
   'brand.businessName': 'Business Name', 'brand.tagline': 'Tagline',
   'brand.primaryColor': 'Primary Color', 'brand.secondaryColor': 'Secondary Color',
