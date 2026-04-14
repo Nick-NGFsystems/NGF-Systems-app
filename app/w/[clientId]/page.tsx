@@ -10,6 +10,7 @@ export async function generateMetadata({ params }: { params: Promise<{ clientId:
                   'ngf-public-api': `https://app.ngfsystems.com/api/public/website/${clientId}`
           }
     }
+}
 
 interface WebsiteContent {
   hero: { headline: string; subheadline: string; ctaText: string; ctaLink: string }
