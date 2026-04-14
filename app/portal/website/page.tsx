@@ -81,7 +81,8 @@ export default function WebsiteEditorPage() {
       } else if (typeof sectionData === 'object' && !Array.isArray(sectionData)) {
         updated = { ...sectionData, [field]: value }
       } else {
-        updated = sectionData
+        // sectionData is undefined (new client, empty content) — create the section
+        updated = { [field]: value }
       }
       const next = { ...prev, [section]: updated }
       pushToPreview(next)
