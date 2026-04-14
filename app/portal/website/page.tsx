@@ -324,7 +324,7 @@ export default function WebsiteEditorPage() {
     )
   }
 
-  const previewUrl = clientId ? `/preview?clientId=${clientId}` : '/preview'
+  const previewUrl = siteUrl || (clientId ? `/preview?clientId=${clientId}` : '/preview')
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
