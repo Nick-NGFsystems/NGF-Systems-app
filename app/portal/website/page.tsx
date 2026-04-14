@@ -182,6 +182,16 @@ export default function WebsiteEditorPage() {
 
   useEffect(() => {
     const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'ngfReady') {
+        // Bridge just mounted — now safe to activate edit mode and push current content
+        iframeRef.current?.contentWindow?.postMessage({ type: 'setEditMode', enabled: true }, '*')
+        setContent(prev => {
+          setTimeout(() => {
+            iframeRef.current?.contentWindow?.postMessage({ type: 'contentUpdate', content: prev }, '*')
+          }, 50)
+          return prev
+        })
+      }
       if (e.data?.type === 'fieldClick') {
         const { section, field, currentValue } = e.data as { section: string; field: string; currentValue: string }
         const fieldPart = field.split('.').pop() || field
