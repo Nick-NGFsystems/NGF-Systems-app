@@ -31,7 +31,6 @@ export default function PreviewPage() {
   const [editMode, setEditMode] = useState(false)
   const [initialized, setInitialized] = useState(false)
 
-  // Load initial content from API
   useEffect(() => {
     fetch('/api/portal/website')
       .then(r => r.json())
@@ -42,7 +41,6 @@ export default function PreviewPage() {
       .catch(() => setInitialized(true))
   }, [])
 
-  // Listen for messages from parent editor
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data?.type === 'contentUpdate') {
@@ -57,12 +55,11 @@ export default function PreviewPage() {
     return () => window.removeEventListener('message', handler)
   }, [])
 
-  // ef = editable field: wraps text with click handler in edit mode
   const ef = (section: string, field: string, value: string, className?: string) => {
     if (!editMode) return <span className={className}>{value}</span>
     return (
       <span
-        className={`${className ?? ''} cursor-pointer rounded transition-all outline outline-2 outline-transparent hover:outline-blue-400 hover:bg-blue-50/10 px-0.5`}
+        className={`${className ?? ''} cursor-pointer rounded transition-all outline outline-2 outline-transparent hover:outline-blue-400 hover:bg-blue-50/20 px-0.5`}
         onClick={() => window.parent.postMessage({ type: 'fieldClick', section, field, currentValue: value }, '*')}
       >
         {value}
@@ -73,22 +70,24 @@ export default function PreviewPage() {
   const primary = content.brand?.primaryColor || '#2563eb'
   const secondary = content.brand?.secondaryColor || '#1e40af'
   const businessName = content.brand?.businessName || 'Business Name'
+  const gallery = content.gallery || []
 
   if (!initialized) return <div className="flex items-center justify-center h-screen bg-gray-50"><div className="text-gray-400">Loading…</div></div>
 
   return (
     <div className="min-h-screen bg-white font-sans">
-      {/* Nav */}
       <nav className="sticky top-0 z-40 px-6 py-3 flex items-center justify-between shadow-sm" style={{ backgroundColor: primary }}>
         <span className="text-white font-bold text-lg">{ef('brand', 'businessName', businessName)}</span>
         <div className="flex gap-6 text-sm text-white/90">
           {['About', 'Services', 'Contact'].map(s => (
             <a key={s} href={`#${s.toLowerCase()}`} className="hover:text-white transition-colors">{s}</a>
           ))}
+          {gallery.length > 0 && (
+            <a href="#gallery" className="hover:text-white transition-colors">Photos</a>
+          )}
         </div>
       </nav>
 
-      {/* Hero */}
       <section id="hero" className="py-24 px-6 text-center text-white" style={{ background: `linear-gradient(135deg, ${primary}, ${secondary})` }}>
         <h1 className="text-4xl md:text-5xl font-bold mb-4">{ef('hero', 'headline', content.hero?.headline || '')}</h1>
         <p className="text-xl opacity-90 mb-8 max-w-2xl mx-auto">{ef('hero', 'subheadline', content.hero?.subheadline || '')}</p>
@@ -97,13 +96,11 @@ export default function PreviewPage() {
         </a>
       </section>
 
-      {/* About */}
       <section id="about" className="py-20 px-6 max-w-3xl mx-auto text-center">
         <h2 className="text-3xl font-bold mb-4 text-gray-800">{ef('about', 'title', content.about?.title || '')}</h2>
         <p className="text-gray-600 leading-relaxed text-lg">{ef('about', 'body', content.about?.body || '')}</p>
       </section>
 
-      {/* Services */}
       <section id="services" className="py-20 px-6 bg-gray-50">
         <div className="max-w-5xl mx-auto">
           <h2 className="text-3xl font-bold text-center mb-12 text-gray-800">Our Services</h2>
@@ -119,7 +116,25 @@ export default function PreviewPage() {
         </div>
       </section>
 
-      {/* Contact */}
+      {gallery.length > 0 && (
+        <section id="gallery" className="py-20 px-6 bg-white">
+          <div className="max-w-5xl mx-auto">
+            <h2 className="text-3xl font-bold text-center mb-12 text-gray-800">Photos</h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {gallery.map((url, i) => (
+                <div key={i} className="aspect-square overflow-hidden rounded-xl bg-gray-100">
+                  <img
+                    src={url}
+                    alt={`Photo ${i + 1}`}
+                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       <section id="contact" className="py-20 px-6 max-w-3xl mx-auto">
         <h2 className="text-3xl font-bold text-center mb-10 text-gray-800">Contact Us</h2>
         <div className="grid sm:grid-cols-2 gap-6 text-gray-600">
@@ -142,7 +157,6 @@ export default function PreviewPage() {
         </div>
       </section>
 
-      {/* Footer */}
       <footer className="py-8 px-6 text-center text-sm text-white" style={{ backgroundColor: secondary }}>
         <p className="font-semibold">{businessName}</p>
         {content.brand?.tagline && <p className="opacity-75 mt-1">{content.brand.tagline}</p>}
