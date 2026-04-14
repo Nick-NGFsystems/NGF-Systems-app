@@ -48,6 +48,7 @@ export default function WebsiteEditorPage() {
   const sendTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [content, setContent] = useState<ContentBlock>({})
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [pushStatus, setPushStatus] = useState<'idle' | 'pushing' | 'pushed' | 'error'>('idle')
   const [activeSection, setActiveSection] = useState<string>('')
   const [siteUrl, setSiteUrl] = useState('')
   const [clientId, setClientId] = useState('')
@@ -134,6 +135,18 @@ export default function WebsiteEditorPage() {
       return next
     })
   }, [pushToPreview])
+
+  const push = useCallback(async () => {
+    setPushStatus('pushing')
+    try {
+      const res = await fetch('/api/portal/website/push', { method: 'POST' })
+      setPushStatus(res.ok ? 'pushed' : 'error')
+      setTimeout(() => setPushStatus('idle'), 3000)
+    } catch {
+      setPushStatus('error')
+      setTimeout(() => setPushStatus('idle'), 3000)
+    }
+  }, [])
 
   const save = useCallback(async () => {
     setSaveStatus('saving')
@@ -296,11 +309,23 @@ export default function WebsiteEditorPage() {
                 saveStatus === 'saving' ? 'bg-gray-100 text-gray-400 cursor-wait'
                 : saveStatus === 'saved' ? 'bg-green-100 text-green-700'
                 : saveStatus === 'error' ? 'bg-red-100 text-red-700'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
               }`}>
-              {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'error' ? '✗ Error' : 'Save'}
+              {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'error' ? '✗ Error' : 'Save Draft'}
             </button>
           </div>
+          <button
+            onClick={push}
+            disabled={pushStatus === 'pushing'}
+            className={`mt-2 w-full py-2 rounded-lg text-xs font-semibold transition-all ${
+              pushStatus === 'pushing' ? 'bg-gray-100 text-gray-400 cursor-wait'
+              : pushStatus === 'pushed' ? 'bg-green-600 text-white'
+              : pushStatus === 'error' ? 'bg-red-100 text-red-700'
+              : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
+          >
+            {pushStatus === 'pushing' ? 'Pushing…' : pushStatus === 'pushed' ? '✓ Live on Website' : pushStatus === 'error' ? '✗ Push Failed' : '🚀 Push to Website'}
+          </button>
           <a href={siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`} target="_blank" rel="noopener noreferrer"
             className="mt-2 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline truncate">
             <span className="truncate">{siteUrl.replace(/^https?:\/\//, '')}</span>
