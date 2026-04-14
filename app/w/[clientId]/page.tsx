@@ -3,6 +3,14 @@ import { notFound } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
 
+export async function generateMetadata({ params }: { params: Promise<{ clientId: string }> }) {
+    const { clientId } = await params
+    return {
+          other: {
+                  'ngf-public-api': `https://app.ngfsystems.com/api/public/website/${clientId}`
+          }
+    }
+
 interface WebsiteContent {
   hero: { headline: string; subheadline: string; ctaText: string; ctaLink: string }
   about: { title: string; body: string }
@@ -23,6 +31,8 @@ export default async function PublicWebsitePage({
   const websiteContent = await db.websiteContent.findUnique({
     where: { client_id: clientId },
   })
+
+    if (!websiteContent) return notFound()
 
 
   const c = websiteContent.content as unknown as WebsiteContent
