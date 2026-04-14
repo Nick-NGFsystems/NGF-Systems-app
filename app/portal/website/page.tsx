@@ -55,6 +55,8 @@ export default function WebsiteEditorPage() {
   const [loading, setLoading] = useState(true)
   const [activeField, setActiveField] = useState<{ section: string; field: string; value: string; label: string } | null>(null)
   const [galleryInputs, setGalleryInputs] = useState<Record<string, string>>({})
+  const [pendingChanges, setPendingChanges] = useState<Array<{ label: string; section: string; field: string; value: string }>>([])
+
 
   const sections = Object.keys(content).filter(k => !ADMIN_KEYS.has(k) && content[k] != null)
 
@@ -141,6 +143,7 @@ export default function WebsiteEditorPage() {
     setPushStatus('pushing')
     try {
       const res = await fetch('/api/portal/website/push', { method: 'POST' })
+      if (res.ok) setPendingChanges([])
       setPushStatus(res.ok ? 'pushed' : 'error')
       setTimeout(() => setPushStatus('idle'), 3000)
     } catch {
@@ -376,16 +379,34 @@ export default function WebsiteEditorPage() {
                 </button>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-                <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
-                  <svg className="w-7 h-7 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                </div>
-                <p className="text-sm font-semibold text-gray-800 mb-1">Click to edit</p>
-                <p className="text-xs text-gray-400 leading-relaxed">
-                  Hover over text on your site — editable fields glow blue. Click one to edit it here.
-                </p>
+              <div className="flex flex-col h-full">
+                {pendingChanges.length > 0 ? (
+                  <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Unsaved changes</p>
+                    {pendingChanges.map((change, i) => (
+                      <div key={i} className="bg-amber-50 border border-amber-200 rounded-lg p-3 cursor-pointer hover:bg-amber-100 transition-colors"
+                        onClick={() => setActiveField({ section: change.section, field: change.field, value: change.value, label: change.label })}>
+                        <p className="text-xs font-semibold text-amber-800">{change.label}</p>
+                        <p className="text-xs text-gray-500 mt-0.5 truncate">{change.value}</p>
+                      </div>
+                    ))}
+                    <p className="text-xs text-gray-400 pt-2 text-center leading-relaxed">
+                      Click 🚀 Push to Website to make these live.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center flex-1 p-6 text-center">
+                    <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
+                      <svg className="w-7 h-7 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                    </div>
+                    <p className="text-sm font-semibold text-gray-800 mb-1">Click to edit</p>
+                    <p className="text-xs text-gray-400 leading-relaxed">
+                      Hover over text on your site — editable fields glow blue. Click one to edit it here.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>
