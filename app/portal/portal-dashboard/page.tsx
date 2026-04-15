@@ -1,4 +1,5 @@
 import { auth } from '@clerk/nextjs/server'
+import type { ReactElement } from 'react'
 import { redirect } from 'next/navigation'
 import { getClientConfig } from '@/lib/portal'
 import { db } from '@/lib/db'
@@ -67,7 +68,7 @@ export default async function PortalDashboardPage() {
         </svg>
       ),
     } : null,
-  ].filter((a): a is { label: string; href: string; desc: string; icon: JSX.Element } => a !== null)
+  ].filter((a): a is { label: string; href: string; desc: string; icon: ReactElement } => a !== null)
 
   return (
     <section className="space-y-8">
