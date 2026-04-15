@@ -55,6 +55,8 @@ export default function WebsiteEditorPage() {
   const [activeField, setActiveField] = useState<{ section: string; field: string; value: string; label: string } | null>(null)
   const [galleryInputs, setGalleryInputs] = useState<Record<string, string>>({})
   const [pendingChanges, setPendingChanges] = useState<Array<{ label: string; section: string; field: string; value: string }>>([])
+  const [changeLog, setChangeLog] = useState<Array<{ label: string; section: string; value: string; time: string; published: boolean }>>([])
+
   const [isEditing, setIsEditing] = useState(false)
 
   const sections = Object.keys(content).filter(k => !ADMIN_KEYS.has(k) && content[k] != null)
@@ -141,7 +143,7 @@ export default function WebsiteEditorPage() {
     setPushStatus('pushing')
     try {
       const res = await fetch('/api/portal/website/push', { method: 'POST' })
-      if (res.ok) { setPendingChanges([]); setPushStatus('published') }
+      if (res.ok) { setPendingChanges([]); setPushStatus('published'); setChangeLog(prev => prev.map(e => ({ ...e, published: true }))) }
       else setPushStatus('error')
       setTimeout(() => setPushStatus('idle'), 3000)
     } catch { setPushStatus('error'); setTimeout(() => setPushStatus('idle'), 3000) }
@@ -149,11 +151,18 @@ export default function WebsiteEditorPage() {
 
   const handleDone = useCallback(() => {
     if (activeField) {
+      const timeStr = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
       setPendingChanges(prev => {
         const idx = prev.findIndex(c => c.section === activeField.section && c.field === activeField.field)
         const entry = { label: activeField.label, section: activeField.section, field: activeField.field, value: activeField.value }
         if (idx >= 0) { const n = [...prev]; n[idx] = entry; return n }
         return [...prev, entry]
+      })
+      setChangeLog(prev => {
+        const entry = { label: activeField.label, section: activeField.section, value: activeField.value, time: timeStr, published: false }
+        const idx = prev.findIndex(c => c.section === activeField.section && c.label === activeField.label)
+        if (idx >= 0) { const n = [...prev]; n[idx] = entry; return n }
+        return [entry, ...prev]
       })
     }
     setActiveField(null)
@@ -339,6 +348,29 @@ export default function WebsiteEditorPage() {
                         <p className="text-xs text-amber-600 mt-0.5 truncate">{change.value}</p>
                       </button>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Change history */}
+              {changeLog.length > 0 && (
+                <div className="px-4 py-3 border-b border-gray-100">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2.5">Change History</p>
+                  <div className="space-y-1.5">
+                    {changeLog.map((entry, i) => (
+                      <div key={i} className="flex items-start gap-2.5">
+                        <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${entry.published ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs text-gray-700 font-medium truncate">{humanize(entry.section)} — {entry.label}</p>
+                          <p className="text-xs text-gray-400 truncate">{entry.value}</p>
+                        </div>
+                        <span className="text-xs text-gray-300 flex-shrink-0 mt-0.5">{entry.time}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-3 mt-3 pt-2 border-t border-gray-100">
+                    <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400" /><span className="text-xs text-gray-400">Published</span></div>
+                    <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-amber-400" /><span className="text-xs text-gray-400">Saved, not published</span></div>
                   </div>
                 </div>
               )}
