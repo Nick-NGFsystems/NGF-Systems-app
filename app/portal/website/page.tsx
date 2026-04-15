@@ -69,10 +69,6 @@ export default function WebsiteEditorPage() {
     }, 120)
   }, [])
 
-  const enableEditMode = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage({ type: 'setEditMode', enabled: true }, '*')
-  }, [])
-
   const update = useCallback((section: string, field: string, value: string) => {
     setContent(prev => {
       const sectionData = prev[section]
@@ -447,7 +443,6 @@ export default function WebsiteEditorPage() {
           <iframe
             ref={iframeRef}
             src={previewUrl}
-            onLoad={enableEditMode}
             className="w-full h-full border-0"
             title="Website Preview"
           />
