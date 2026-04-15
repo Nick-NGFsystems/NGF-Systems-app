@@ -1,5 +1,4 @@
 'use client'
-
 import { useState } from 'react'
 import Link from 'next/link'
 import { UserButton } from '@clerk/nextjs'
@@ -20,8 +19,10 @@ export default function PortalNavbar({ config }: PortalNavbarProps) {
 
   const links: PortalNavbarLink[] = [
     { label: 'Dashboard', href: '/portal/portal-dashboard' },
-    { label: 'Website Editor', href: '/portal/website' },
-    ...(config.page_website ? [{ label: 'My Website', href: '/portal/portal-website' }] : []),
+    ...(config.page_website ? [
+      { label: 'Website Editor', href: '/portal/website' },
+      { label: 'My Website', href: '/portal/portal-website' },
+    ] : []),
     ...(config.page_content ? [{ label: 'Content', href: '/portal/portal-content' }] : []),
     ...(config.page_invoices ? [{ label: 'Invoices', href: '/portal/portal-invoices' }] : []),
     ...(config.page_request ? [{ label: 'Request', href: '/portal/portal-request' }] : []),
@@ -39,11 +40,7 @@ export default function PortalNavbar({ config }: PortalNavbarProps) {
 
           <div className="hidden items-center gap-1 md:flex">
             {links.map((link) => (
-              <NavLink
-                key={link.href}
-                href={link.href}
-                label={link.label}
-              />
+              <NavLink key={link.href} href={link.href} label={link.label} />
             ))}
           </div>
 
@@ -56,26 +53,11 @@ export default function PortalNavbar({ config }: PortalNavbarProps) {
               aria-label="Toggle portal navigation"
               aria-expanded={isOpen}
             >
-              <svg
-                className="h-6 w-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
+              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 {isOpen ? (
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 ) : (
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 6h16M4 12h16M4 18h16"
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 )}
               </svg>
             </button>
