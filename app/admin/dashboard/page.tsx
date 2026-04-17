@@ -1,6 +1,7 @@
 import { currentUser } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 import Link from 'next/link'
+import SiteAnalyticsWidget from '@/components/admin/SiteAnalyticsWidget'
 
 export const dynamic = 'force-dynamic'
 
@@ -96,6 +97,7 @@ export default async function DashboardPage() {
           </div>
         </section>
       </div>
+      <SiteAnalyticsWidget />
       <section className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
         <h2 className="font-sans text-base font-semibold text-gray-900 mb-4">Quick Actions</h2>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
