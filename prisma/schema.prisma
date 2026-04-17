@@ -246,12 +246,13 @@ model Subscription {
 }
 
 model WebsiteContent {
-  id           String    @id @default(cuid())
-  client_id    String    @unique
-  content      Json
-  published_at DateTime?
-  created      DateTime  @default(now())
-  updated      DateTime  @updatedAt
+  id            String    @id @default(cuid())
+  client_id     String    @unique
+  content       Json      // Published — what the live website reads
+  draft_content Json?     // Draft — saved but not yet published
+  published_at  DateTime?
+  created       DateTime  @default(now())
+  updated       DateTime  @updatedAt
 
   @@map("website_content")
 }

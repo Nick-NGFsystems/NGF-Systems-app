@@ -56,6 +56,7 @@ export default function WebsiteEditorPage() {
   const [galleryInputs, setGalleryInputs] = useState<Record<string, string>>({})
   const [pendingChanges, setPendingChanges] = useState<Array<{ label: string; section: string; field: string; value: string }>>([])
   const [changeLog, setChangeLog] = useState<Array<{ label: string; section: string; value: string; time: string; published: boolean }>>([])
+  const [hasDraft, setHasDraft] = useState(false)
 
   const [isEditing, setIsEditing] = useState(false)
 
@@ -130,7 +131,7 @@ export default function WebsiteEditorPage() {
     setSaveStatus('saving')
     try {
       const res = await fetch('/api/portal/website', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) })
-      setSaveStatus(res.ok ? 'saved' : 'error')
+      if (res.ok) { setHasDraft(true); setSaveStatus('saved') } else { setSaveStatus('error') }
       setTimeout(() => setSaveStatus('idle'), 2000)
     } catch { setSaveStatus('error'); setTimeout(() => setSaveStatus('idle'), 2000) }
   }, [content])
@@ -139,8 +140,14 @@ export default function WebsiteEditorPage() {
     setPushStatus('pushing')
     try {
       const res = await fetch('/api/portal/website/push', { method: 'POST' })
-      if (res.ok) { setPendingChanges([]); setPushStatus('published'); setChangeLog(prev => prev.map(e => ({ ...e, published: true }))) }
-      else setPushStatus('error')
+      if (res.ok) {
+        setPendingChanges([])
+        setHasDraft(false)
+        setPushStatus('published')
+        setChangeLog(prev => prev.map(e => ({ ...e, published: true })))
+      } else {
+        setPushStatus('error')
+      }
       setTimeout(() => setPushStatus('idle'), 3000)
     } catch { setPushStatus('error'); setTimeout(() => setPushStatus('idle'), 3000) }
   }, [])
@@ -168,7 +175,12 @@ export default function WebsiteEditorPage() {
 
   useEffect(() => {
     fetch('/api/portal/website').then(r => r.json()).then(data => {
-      if (data?.content) { setContent(data.content as ContentBlock); const first = Object.keys(data.content as ContentBlock).find(k => !ADMIN_KEYS.has(k)); if (first) setActiveSection(first) }
+      if (data?.content) {
+        setContent(data.content as ContentBlock)
+        const first = Object.keys(data.content as ContentBlock).find(k => !ADMIN_KEYS.has(k))
+        if (first) setActiveSection(first)
+      }
+      if (data?.has_draft) setHasDraft(true)
       if (data?.site_url) setSiteUrl(data.site_url as string)
       if (data?.client_id) setClientId(data.client_id as string)
     }).catch(() => {}).finally(() => setLoading(false))
@@ -265,8 +277,11 @@ export default function WebsiteEditorPage() {
     )
   }
 
-  const previewUrl = siteUrl || (clientId ? `/preview?clientId=${clientId}` : '/preview')
+  const normalizedSiteUrl = siteUrl ? (siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`) : ''
+  const previewUrl = normalizedSiteUrl || (clientId ? `/preview?clientId=${clientId}` : '/preview')
   const hasPending = pendingChanges.length > 0
+  // Publish button is active when there's a saved draft (server-side) OR unsaved in-session changes
+  const canPublish = hasDraft || hasPending
 
   return (
     <div className="flex h-screen bg-gray-100 overflow-hidden">
@@ -278,20 +293,24 @@ export default function WebsiteEditorPage() {
         <div className="px-4 pt-4 pb-3 border-b border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
-            <a href={siteUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-gray-900 truncate flex-1 transition-colors">{siteUrl.replace(/^https?:\/\//, '')}</a>
-            <a href={siteUrl} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0">
+            <a href={normalizedSiteUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-gray-900 truncate flex-1 transition-colors">{siteUrl.replace(/^https?:\/\//, '')}</a>
+            <a href={normalizedSiteUrl} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
             </a>
           </div>
-          <button onClick={push} disabled={!hasPending || pushStatus === 'pushing'}
+          <button onClick={push} disabled={!canPublish || pushStatus === 'pushing'}
             className={`w-full h-9 rounded-lg text-sm font-semibold transition-all ${
-              hasPending && pushStatus === 'idle' ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm'
+              canPublish && pushStatus === 'idle' ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm'
               : pushStatus === 'pushing' ? 'bg-blue-100 text-blue-400 cursor-wait'
               : pushStatus === 'published' ? 'bg-emerald-100 text-emerald-700'
               : pushStatus === 'error' ? 'bg-red-100 text-red-700'
               : 'bg-gray-100 text-gray-400 cursor-not-allowed'
             }`}>
-            {pushStatus === 'pushing' ? 'Publishing…' : pushStatus === 'published' ? '✓ Published!' : pushStatus === 'error' ? 'Publish failed' : hasPending ? `Publish ${pendingChanges.length} change${pendingChanges.length !== 1 ? 's' : ''}` : 'No changes to publish'}
+            {pushStatus === 'pushing' ? 'Publishing to website…'
+              : pushStatus === 'published' ? '✓ Live on website!'
+              : pushStatus === 'error' ? 'Publish failed — try again'
+              : canPublish ? 'Publish to Website'
+              : 'No draft to publish'}
           </button>
         </div>
 
@@ -320,13 +339,13 @@ export default function WebsiteEditorPage() {
               <button onClick={handleDone}
                 className={`w-full h-9 rounded-lg text-sm font-semibold transition-all ${
                   saveStatus === 'saving' ? 'bg-gray-100 text-gray-400 cursor-wait'
-                  : saveStatus === 'saved' ? 'bg-emerald-100 text-emerald-700'
+                  : saveStatus === 'saved' ? 'bg-amber-100 text-amber-700'
                   : saveStatus === 'error' ? 'bg-red-100 text-red-700'
-                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  : 'bg-gray-800 hover:bg-gray-900 text-white'
                 }`}>
-                {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'error' ? 'Error saving' : 'Done ✓ Save'}
+                {saveStatus === 'saving' ? 'Saving draft…' : saveStatus === 'saved' ? '● Draft saved' : saveStatus === 'error' ? 'Error saving' : 'Save Draft'}
               </button>
-              <p className="text-xs text-gray-400 text-center">Changes appear live in the preview</p>
+              <p className="text-xs text-gray-400 text-center">Saved as draft — won&apos;t go live until you publish</p>
             </div>
 
           ) : isRealSite ? (
@@ -335,7 +354,7 @@ export default function WebsiteEditorPage() {
               {/* Pending changes */}
               {hasPending && (
                 <div className="p-4 border-b border-gray-100">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2.5">{pendingChanges.length} Unsaved Change{pendingChanges.length !== 1 ? 's' : ''}</p>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2.5">{pendingChanges.length} Draft Change{pendingChanges.length !== 1 ? 's' : ''} — not live yet</p>
                   <div className="space-y-2">
                     {pendingChanges.map((change, i) => (
                       <button key={i} onClick={() => { setActiveField({ section: change.section, field: change.field, value: change.value, label: change.label }); setIsEditing(true) }}
@@ -365,8 +384,8 @@ export default function WebsiteEditorPage() {
                     ))}
                   </div>
                   <div className="flex items-center gap-3 mt-3 pt-2 border-t border-gray-100">
-                    <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400" /><span className="text-xs text-gray-400">Published</span></div>
-                    <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-amber-400" /><span className="text-xs text-gray-400">Saved, not published</span></div>
+                    <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400" /><span className="text-xs text-gray-400">Live on website</span></div>
+                    <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-amber-400" /><span className="text-xs text-gray-400">Draft — not live</span></div>
                   </div>
                 </div>
               )}
@@ -375,18 +394,44 @@ export default function WebsiteEditorPage() {
               <div className="p-4 flex-1">
                 {!hasPending && (
                   <div className="mb-5">
+                    {hasDraft && (
+                      <div className="mb-4 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5">
+                        <p className="text-xs font-semibold text-amber-800">● Draft saved</p>
+                        <p className="text-xs text-amber-600 mt-0.5">You have unpublished changes. Click &quot;Publish to Website&quot; when ready.</p>
+                      </div>
+                    )}
                     <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center mb-3">
                       <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                     </div>
                     <p className="text-sm font-semibold text-gray-800 mb-1">Click to edit</p>
-                    <p className="text-xs text-gray-400 leading-relaxed">Text that can be edited glows blue when you hover over it. Click any field to start.</p>
+                    <p className="text-xs text-gray-400 leading-relaxed">Hover over text in the preview — editable fields glow blue. Click to edit, then Save Draft. When you&apos;re happy, hit Publish.</p>
                   </div>
                 )}
 
+                {/* Section jump nav — scroll preview to any section */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Jump to Section</p>
+                  <div className="grid grid-cols-2 gap-1">
+                    {[
+                      { id: 'hero', label: 'Hero' },
+                      { id: 'about', label: 'About' },
+                      { id: 'services', label: 'Services' },
+                      { id: 'gallery', label: 'Photos' },
+                      { id: 'contact', label: 'Contact' },
+                    ].map(s => (
+                      <button key={s.id}
+                        onClick={() => iframeRef.current?.contentWindow?.postMessage({ type: 'scrollTo', section: s.id }, '*')}
+                        className="text-left px-3 py-2 rounded-lg text-xs text-gray-600 hover:bg-gray-50 hover:text-blue-600 transition-colors">
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Section list for quick access — only for generic template mode */}
                 {!isRealSite && sections.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Sections</p>
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Edit Section</p>
                     <div className="space-y-1">
                       {sections.map(s => (
                         <button key={s} onClick={() => setActiveSection(s)}

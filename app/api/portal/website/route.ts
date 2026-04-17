@@ -17,10 +17,13 @@ export async function GET() {
       where: { client_id: client.id },
     })
 
-    // If no content saved yet, return empty — website uses its own fallback values
+    // Editor loads draft_content if it exists, otherwise falls back to published content
+    const editorContent = websiteContent?.draft_content ?? websiteContent?.content ?? {}
+
     return NextResponse.json({
-      ...(websiteContent ?? {}),
-      content: websiteContent?.content ?? {},
+      content: editorContent,
+      published_content: websiteContent?.content ?? {},
+      has_draft: !!websiteContent?.draft_content,
       site_url: client.config?.site_url ?? null,
       client_id: client.id,
     })
@@ -43,13 +46,18 @@ export async function POST(request: NextRequest) {
 
     const { content } = await request.json()
 
-    const websiteContent = await db.websiteContent.upsert({
+    // Save to draft_content only — does NOT touch published content or affect live website
+    await db.websiteContent.upsert({
       where: { client_id: client.id },
-      update: { content },
-      create: { client_id: client.id, content },
+      update: { draft_content: content },
+      create: {
+        client_id: client.id,
+        content: {},        // Published starts empty until first publish
+        draft_content: content,
+      },
     })
 
-    return NextResponse.json(websiteContent)
+    return NextResponse.json({ success: true, has_draft: true })
   } catch (err) {
     console.error('[portal/website POST]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

@@ -12,28 +12,48 @@ export async function POST() {
       include: { config: true },
     })
 
-    if (!client?.config?.site_url) {
-      return NextResponse.json({ error: 'No site URL configured' }, { status: 400 })
-    }
+    if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 })
 
-    const secret = process.env.WEBSITE_REVALIDATION_SECRET
-    if (!secret) {
-      return NextResponse.json({ error: 'Revalidation not configured' }, { status: 500 })
-    }
-
-    const base = client.config.site_url.replace(/\/$/, '')
-    const res = await fetch(`${base}/api/revalidate?secret=${secret}`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(10000),
+    // Get current draft
+    const websiteContent = await db.websiteContent.findUnique({
+      where: { client_id: client.id },
     })
 
-    if (!res.ok) {
-      return NextResponse.json({ error: `Site returned ${res.status}` }, { status: 502 })
+    if (!websiteContent?.draft_content) {
+      return NextResponse.json({ error: 'No draft to publish' }, { status: 400 })
+    }
+
+    // Promote draft → published content and clear the draft
+    await db.websiteContent.update({
+      where: { client_id: client.id },
+      data: {
+        content: websiteContent.draft_content,  // Draft becomes the live content
+        draft_content: null,                     // Clear draft after publishing
+        published_at: new Date(),
+      },
+    })
+
+    // Optionally ping the website's revalidate endpoint (non-fatal if it fails —
+    // the site uses cache: no-store so the new content appears on next page load anyway)
+    if (client.config?.site_url) {
+      const secret = process.env.WEBSITE_REVALIDATION_SECRET
+      if (secret) {
+        const rawUrl = client.config.site_url.trim().replace(/\/$/, '')
+        const base = rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`
+        try {
+          await fetch(`${base}/api/revalidate?secret=${secret}`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(8000),
+          })
+        } catch {
+          // Non-fatal — site fetches fresh content on every load anyway
+        }
+      }
     }
 
     return NextResponse.json({ success: true })
   } catch (err) {
     console.error('[portal/website/push]', err)
-    return NextResponse.json({ error: 'Failed to push to website' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to publish' }, { status: 500 })
   }
 }

@@ -276,19 +276,51 @@ Never hardcode what a client can or cannot see — always read from `client_conf
 - `feature_booking` — Booking management
 - `feature_gallery` — Gallery management
 
-### Client Website ↔ Portal Connection
-Each client's website and their portal share one Neon database.
-The website reads from the database to display content to visitors.
-The portal writes to the database when the client saves changes.
+### Client Website ↔ Portal Connection — NGF Content Editor
+Client websites do NOT have their own databases. All content is stored centrally in the NGF app database and served via the public API.
 
 ```
-Client Portal → writes → Neon DB → read by → Client Website
+Client edits in portal editor → clicks "Save Draft"
+  → POST /api/portal/website → saves to website_content.draft_content (NOT live)
+
+Client clicks "Publish"
+  → POST /api/portal/website/push → promotes draft_content → content, clears draft
+  → Client website fetches updated content on next page load (cache: no-store)
 ```
 
-All editable website content lives in the `site_content` table.
-The admin defines which fields exist per client by adding rows to this table.
-The portal renders edit controls for those fields only — nothing else.
-The website fetches and displays those field values to visitors.
+```
+app.ngfsystems.com DB (website_content table)
+  content      — published, what visitors see
+  draft_content — saved but not published, only visible in portal editor
+
+Client website calls:
+  GET app.ngfsystems.com/api/public/website/by-domain/clientdomain.com
+  → returns content (published only, never draft_content)
+```
+
+**Key API endpoints for the editor:**
+- `GET /api/portal/website` — returns `draft_content ?? content` for the editor
+- `POST /api/portal/website` — saves to `draft_content` only, website unchanged
+- `POST /api/portal/website/push` — promotes `draft_content` → `content`, makes it live
+- `GET /api/public/website/by-domain/[domain]` — public, CORS, returns published content
+- `GET /api/public/website/[clientId]` — public, CORS, returns published content by client ID
+
+### Building a New Client Website — What It Needs
+Every client website must have these 4 things to work with the portal editor:
+
+1. **`lib/ngf.ts`** — fetches published content from the NGF app API. Uses `VERCEL_PROJECT_PRODUCTION_URL` to auto-detect domain. No `NGF_CLIENT_ID` env var needed.
+
+2. **`components/NgfEditBridge.tsx`** — postMessage bridge that makes the website work inside the portal iframe editor. Handles `setEditMode`, `contentUpdate`, and `fieldClick` messages.
+
+3. **`data-ngf-field="section.fieldName"` attributes** on editable HTML elements — format: `"hero.subheadline"`, `"features.title"`, etc. These make fields clickable in the portal editor.
+
+4. **CSP header in `next.config.js`**: `frame-ancestors 'self' https://app.ngfsystems.com https://*.vercel.app` — allows the portal to iframe the client website.
+
+**Admin steps after deploying a new client website:**
+1. In Admin → Portal → Manage Portal for the client
+2. Set `Site URL` to the client's production domain (e.g. `clientdomain.com`, no https://)
+3. Toggle on `Website Page` so the client can access the editor
+4. Client can now go to Website Editor, make changes, save drafts, and publish
 
 ### Multi-Tenant Data Isolation — Critical
 - Every database query on the portal side must filter by `client_id`
