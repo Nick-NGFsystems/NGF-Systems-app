@@ -1,6 +1,8 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { useConfirm } from '@/hooks/useConfirm'
 
 interface PortalConfigState {
   page_request: boolean
@@ -85,6 +87,7 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
   const [requests, setRequests] = useState<ChangeRequestItem[]>(initialRequests)
   const [isSavingConfig, setIsSavingConfig] = useState(false)
   const [configMessage, setConfigMessage] = useState<{ text: string; ok: boolean } | null>(null)
+  const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm()
 
   // Site URL verification
   const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>('idle')
@@ -228,7 +231,7 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
   }
 
   async function deleteField(fieldId: string) {
-    if (!confirm('Delete this content field?')) return
+    if (!await confirm('Delete this content field?')) return
     try {
       const response = await fetch(`/api/admin/portal/${clientId}/content/${fieldId}`, { method: 'DELETE' })
       const result = await response.json() as { success: boolean; error?: string }
@@ -243,7 +246,7 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
   }
 
   async function deleteRequest(requestId: string) {
-    if (!confirm('Delete this change request? This cannot be undone.')) return
+    if (!await confirm('Delete this change request? This cannot be undone.')) return
     try {
       const response = await fetch(`/api/admin/portal/${clientId}/requests/${requestId}`, { method: 'DELETE' })
       const result = await response.json() as { success: boolean; error?: string }
@@ -305,6 +308,14 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
 
   return (
     <div className="space-y-6">
+      {confirmState && (
+        <ConfirmModal
+          message={confirmState.message}
+          onConfirm={handleConfirm}
+          onCancel={handleCancel}
+        />
+      )}
+
       <section className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <h2 className="font-sans text-xl font-semibold tracking-tight text-slate-900">Portal Settings</h2>
         <p className="mt-1 text-sm text-gray-500">Control page visibility, feature flags, and website connection settings.</p>

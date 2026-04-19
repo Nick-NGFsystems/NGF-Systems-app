@@ -20,6 +20,7 @@ interface WebsiteContent {
   brand: { businessName: string; tagline: string; primaryColor: string; secondaryColor: string }
   gallery: string[]
   seo: { metaTitle: string; metaDescription: string }
+  sectionTitles?: { services: string; gallery: string; contact: string }
 }
 
 export default async function PublicWebsitePage({
@@ -40,6 +41,10 @@ export default async function PublicWebsitePage({
   const primary = c.brand?.primaryColor || '#3B82F6'
   const secondary = c.brand?.secondaryColor || '#1E40AF'
   const businessName = c.brand?.businessName || 'Our Business'
+  const gallery = c.gallery || []
+  const servicesTitle = c.sectionTitles?.services || 'Our Services'
+  const galleryTitle = c.sectionTitles?.gallery || 'Photos'
+  const contactTitle = c.sectionTitles?.contact || 'Contact Us'
 
   return (
     <div className="min-h-screen font-sans" style={{ color: '#1f2937' }}>
@@ -49,6 +54,9 @@ export default async function PublicWebsitePage({
         <div className="flex gap-6 text-white text-sm">
           <a href="#about" className="hover:opacity-75">About</a>
           <a href="#services" className="hover:opacity-75">Services</a>
+          {gallery.length > 0 && (
+            <a href="#gallery" className="hover:opacity-75">Photos</a>
+          )}
           <a href="#contact" className="hover:opacity-75">Contact</a>
         </div>
       </nav>
@@ -78,10 +86,10 @@ export default async function PublicWebsitePage({
       {c.services && c.services.length > 0 && (
         <section id="services" className="py-16 px-6" style={{ backgroundColor: '#f9fafb' }}>
           <div className="max-w-5xl mx-auto">
-            <h2 className="text-3xl font-bold mb-10 text-center">Our Services</h2>
+            <h2 className="text-3xl font-bold mb-10 text-center">{servicesTitle}</h2>
             <div className="grid md:grid-cols-3 gap-6">
-              {c.services.map((svc) => (
-                <div key={svc.id} className="bg-white rounded-xl p-6 shadow-sm">
+              {c.services.map((svc, i) => (
+                <div key={svc.id ?? i} className="bg-white rounded-xl p-6 shadow-sm">
                   <h3 className="font-semibold text-lg mb-2" style={{ color: primary }}>{svc.title}</h3>
                   <p className="text-gray-500 text-sm">{svc.description}</p>
                 </div>
@@ -91,9 +99,29 @@ export default async function PublicWebsitePage({
         </section>
       )}
 
+      {/* Gallery */}
+      {gallery.length > 0 && (
+        <section id="gallery" className="py-16 px-6 bg-white">
+          <div className="max-w-5xl mx-auto">
+            <h2 className="text-3xl font-bold mb-10 text-center">{galleryTitle}</h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {gallery.map((url, i) => (
+                <div key={i} className="aspect-square overflow-hidden rounded-xl bg-gray-100">
+                  <img
+                    src={url}
+                    alt={`Photo ${i + 1}`}
+                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Contact */}
       <section id="contact" className="py-16 px-6 max-w-4xl mx-auto">
-        <h2 className="text-3xl font-bold mb-8">Contact Us</h2>
+        <h2 className="text-3xl font-bold mb-8">{contactTitle}</h2>
         <div className="grid md:grid-cols-2 gap-6 text-gray-600">
           {c.contact?.phone && <p><span className="font-medium">Phone:</span> {c.contact.phone}</p>}
           {c.contact?.email && <p><span className="font-medium">Email:</span> {c.contact.email}</p>}

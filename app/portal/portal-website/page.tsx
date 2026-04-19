@@ -88,6 +88,15 @@ export default async function PortalWebsitePage() {
                   <h3 className="text-sm font-semibold text-gray-900">{item.title}</h3>
                   {item.description && <p className="mt-1 text-sm text-gray-600">{item.description}</p>}
                   {item.page_section && <p className="mt-1 text-xs text-gray-400">Page: {item.page_section}</p>}
+                  {item.image_urls && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {item.image_urls.split(',').filter(Boolean).map((url, i) => (
+                        <a key={i} href={url.trim()} target="_blank" rel="noopener noreferrer">
+                          <img src={url.trim()} alt={`Request image ${i + 1}`} className="h-16 w-16 rounded-lg object-cover border border-gray-200 hover:opacity-80 transition" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                   {item.admin_comment && (
                     <div className="mt-2 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
                       <p className="text-xs font-medium text-blue-700 mb-0.5">NGF response:</p>

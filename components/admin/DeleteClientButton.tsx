@@ -2,6 +2,8 @@
 
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { useConfirm } from '@/hooks/useConfirm'
 
 interface DeleteClientButtonProps {
   clientId: string
@@ -17,9 +19,10 @@ export default function DeleteClientButton({ clientId, clientName }: DeleteClien
   const router = useRouter()
   const [isDeleting, setIsDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm()
 
   const handleDelete = async () => {
-    const confirmed = window.confirm(`Delete ${clientName}? This action cannot be undone.`)
+    const confirmed = await confirm(`Delete ${clientName}? This action cannot be undone.`)
 
     if (!confirmed) {
       return
@@ -50,6 +53,13 @@ export default function DeleteClientButton({ clientId, clientName }: DeleteClien
 
   return (
     <div className="flex w-full flex-col items-start gap-1 sm:w-auto">
+      {confirmState && (
+        <ConfirmModal
+          message={confirmState.message}
+          onConfirm={handleConfirm}
+          onCancel={handleCancel}
+        />
+      )}
       <button
         type="button"
         onClick={handleDelete}

@@ -19,6 +19,7 @@ export default function AdminNavbar() {
     { label: 'Leads', href: '/admin/leads' },
     { label: 'Projects', href: '/admin/projects' },
     { label: 'Finances', href: '/admin/finances' },
+    { label: 'Time', href: '/admin/time' },
     { label: 'Portal', href: '/admin/portal' },
   ]
 

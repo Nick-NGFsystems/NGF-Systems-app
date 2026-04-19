@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation'
 import PortalNavbar from './PortalNavbar'
-import { ClientConfig } from '@prisma/client'
+import type { ClientConfig } from '@/types'
 
 interface PortalLayoutProps {
   children: React.ReactNode

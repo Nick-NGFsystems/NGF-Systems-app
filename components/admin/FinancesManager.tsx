@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { useConfirm } from '@/hooks/useConfirm'
 
 interface RecurringIncome {
   id: string
@@ -127,12 +129,21 @@ export default function FinancesManager({
 }: FinancesManagerProps) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
+  const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm()
 
   const totalAllocationPercentage = budgetAllocations.reduce((sum, alloc) => sum + alloc.percentage, 0)
   const recurringMonthlyExpenses = monthlyExpenses - monthlyMileageTotal
 
   return (
     <section className="space-y-8">
+      {confirmState && (
+        <ConfirmModal
+          message={confirmState.message}
+          onConfirm={handleConfirm}
+          onCancel={handleCancel}
+        />
+      )}
+
       <header>
         <h1 className="font-sans text-3xl font-semibold tracking-tight text-slate-900">Finances</h1>
       </header>
@@ -313,7 +324,7 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this income?')) return
+    if (!await confirm('Delete this income?')) return
 
     try {
       const response = await fetch(`/api/admin/finances/recurring-income/${id}`, {
@@ -543,7 +554,7 @@ function RecurringExpensesSection({ expenses, onRefresh }: RecurringExpensesSect
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this expense?')) return
+    if (!await confirm('Delete this expense?')) return
 
     try {
       const response = await fetch(`/api/admin/finances/recurring-expenses/${id}`, {
@@ -968,7 +979,7 @@ function OneTimeTransactionsSection({ transactions, onRefresh }: OneTimeTransact
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this transaction?')) return
+    if (!await confirm('Delete this transaction?')) return
 
     try {
       const response = await fetch(`/api/admin/finances/one-time/${id}`, {
@@ -1245,7 +1256,7 @@ function WorkMileageSection({ mileageEntries, monthlyMileageTotal, yearlyMileage
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this mileage entry?')) return
+    if (!await confirm('Delete this mileage entry?')) return
 
     try {
       const response = await fetch(`/api/admin/finances/work-mileage/${id}`, {
@@ -1482,7 +1493,7 @@ function BudgetAllocationsSection({ allocations, totalPercentage, onRefresh }: B
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this allocation?')) return
+    if (!await confirm('Delete this allocation?')) return
 
     try {
       const response = await fetch(`/api/admin/finances/allocations/${id}`, {

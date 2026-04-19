@@ -2,6 +2,8 @@
 
 import { FormEvent, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { useConfirm } from '@/hooks/useConfirm'
 
 interface ClientOption {
   id: string
@@ -66,6 +68,7 @@ function getTaskStatusStyle(status: string) {
 
 export default function ProjectsManager({ projects, clients }: ProjectsManagerProps) {
   const router = useRouter()
+  const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm()
 
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
@@ -173,7 +176,7 @@ export default function ProjectsManager({ projects, clients }: ProjectsManagerPr
   }
 
   const handleDeleteProject = async (projectId: string) => {
-    if (!window.confirm('Delete this project and all its tasks?')) {
+    if (!await confirm('Delete this project and all its tasks?')) {
       return
     }
 
@@ -252,7 +255,7 @@ export default function ProjectsManager({ projects, clients }: ProjectsManagerPr
   }
 
   const handleDeleteTask = async (taskId: string) => {
-    if (!window.confirm('Delete this task?')) {
+    if (!await confirm('Delete this task?')) {
       return
     }
 
@@ -274,6 +277,14 @@ export default function ProjectsManager({ projects, clients }: ProjectsManagerPr
 
   return (
     <section className="space-y-8">
+      {confirmState && (
+        <ConfirmModal
+          message={confirmState.message}
+          onConfirm={handleConfirm}
+          onCancel={handleCancel}
+        />
+      )}
+
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="font-sans text-3xl font-semibold tracking-tight text-slate-900">Projects</h1>
         <button

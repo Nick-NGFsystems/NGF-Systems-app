@@ -3,7 +3,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { UserButton } from '@clerk/nextjs'
 import NavLink from './NavLink'
-import { ClientConfig } from '@prisma/client'
+import type { ClientConfig } from '@/types'
 
 interface PortalNavbarLink {
   label: string

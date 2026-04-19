@@ -12,19 +12,8 @@ interface RequestPayload {
 
 const validPriority = new Set(['LOW', 'MEDIUM', 'URGENT'])
 
-async function validateClient() {
-  const { sessionClaims } = await auth()
-  const role = (sessionClaims?.metadata as { role?: string } | undefined)?.role
-  return role === 'client'
-}
-
 export async function POST(request: Request) {
   try {
-    const isClient = await validateClient()
-    if (!isClient) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
-
     const { userId } = await auth()
     if (!userId) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
