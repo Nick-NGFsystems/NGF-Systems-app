@@ -242,6 +242,22 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
     }
   }
 
+  async function deleteRequest(requestId: string) {
+    if (!confirm('Delete this change request? This cannot be undone.')) return
+    try {
+      const response = await fetch(`/api/admin/portal/${clientId}/requests/${requestId}`, { method: 'DELETE' })
+      const result = await response.json() as { success: boolean; error?: string }
+      if (!response.ok || !result.success) {
+        setRequestMessage(result.error ?? 'Failed to delete change request')
+        return
+      }
+      setRequests((prev) => prev.filter((item) => item.id !== requestId))
+      setRequestEdits((prev) => { const next = { ...prev }; delete next[requestId]; return next })
+    } catch {
+      setRequestMessage('Failed to delete change request')
+    }
+  }
+
   async function saveRequest(requestId: string) {
     const draft = requestEdits[requestId]
     if (!draft) return
@@ -551,6 +567,14 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
                           className="inline-flex h-10 items-center rounded-lg bg-slate-900 px-4 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50"
                         >
                           {requestSavingId === item.id ? 'Saving...' : 'Save'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteRequest(item.id)}
+                          disabled={requestSavingId === item.id}
+                          className="inline-flex h-10 items-center rounded-lg border border-red-200 bg-white px-4 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+                        >
+                          Delete
                         </button>
                       </div>
                     </div>

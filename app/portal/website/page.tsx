@@ -139,6 +139,19 @@ export default function WebsiteEditorPage() {
   const push = useCallback(async () => {
     setPushStatus('pushing')
     try {
+      // Always save current content as draft first — ensures there's something to publish
+      // even if the user hasn't explicitly clicked "Save Draft"
+      const saveRes = await fetch('/api/portal/website', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      })
+      if (!saveRes.ok) {
+        setPushStatus('error')
+        setTimeout(() => setPushStatus('idle'), 3000)
+        return
+      }
+
       const res = await fetch('/api/portal/website/push', { method: 'POST' })
       if (res.ok) {
         setPendingChanges([])
@@ -150,7 +163,7 @@ export default function WebsiteEditorPage() {
       }
       setTimeout(() => setPushStatus('idle'), 3000)
     } catch { setPushStatus('error'); setTimeout(() => setPushStatus('idle'), 3000) }
-  }, [])
+  }, [content])
 
   const handleDone = useCallback(() => {
     if (activeField) {

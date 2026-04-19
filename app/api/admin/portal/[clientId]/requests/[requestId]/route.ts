@@ -22,6 +22,29 @@ async function validateAdmin() {
   return role === 'admin'
 }
 
+export async function DELETE(_request: Request, context: RouteContext) {
+  try {
+    const isAdmin = await validateAdmin()
+    if (!isAdmin) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { clientId, requestId } = await context.params
+
+    const existing = await db.changeRequest.findUnique({ where: { id: requestId } })
+    if (!existing || existing.client_id !== clientId) {
+      return NextResponse.json({ success: false, error: 'Change request not found' }, { status: 404 })
+    }
+
+    await db.changeRequest.delete({ where: { id: requestId } })
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Delete change request error:', error)
+    return NextResponse.json({ success: false, error: 'Failed to delete change request' }, { status: 500 })
+  }
+}
+
 export async function PATCH(request: Request, context: RouteContext) {
   try {
     const isAdmin = await validateAdmin()

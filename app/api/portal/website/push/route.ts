@@ -19,7 +19,7 @@ export async function POST() {
       where: { client_id: client.id },
     })
 
-    if (!websiteContent?.draft_content) {
+    if (websiteContent?.draft_content === null || websiteContent?.draft_content === undefined) {
       return NextResponse.json({ error: 'No draft to publish' }, { status: 400 })
     }
 
