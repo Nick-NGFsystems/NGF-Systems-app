@@ -65,4 +65,13 @@ export async function PATCH(request: Request, context: RouteContext) {
     const updated = await db.siteContent.update({
       where: { id: fieldId },
       data: {
-        ...(body.fi
+        ...(body.field_value !== undefined && { field_value: body.field_value?.trim() || null }),
+      },
+    })
+
+    return NextResponse.json({ success: true, data: updated })
+  } catch (error) {
+    console.error('Portal content update error:', error)
+    return NextResponse.json({ success: false, error: 'Failed to update content field' }, { status: 500 })
+  }
+}

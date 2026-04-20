@@ -77,4 +77,12 @@ export async function POST(request: Request) {
         project_id: body.project_id || null,
         hours,
         notes: body.notes?.trim() || null,
-   
+      },
+    })
+
+    return NextResponse.json({ success: true, data: entry })
+  } catch (error) {
+    console.error('Create time entry error:', error)
+    return NextResponse.json({ success: false, error: 'Failed to create time entry' }, { status: 500 })
+  }
+}

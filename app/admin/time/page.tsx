@@ -38,4 +38,8 @@ export default async function TimePage() {
       <TimeTracker
         initialEntries={enrichedEntries}
         clients={clients}
-        proje
+        projects={projects}
+      />
+    </section>
+  )
+}

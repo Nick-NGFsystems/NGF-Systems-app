@@ -223,4 +223,33 @@ export default function TimeTracker({ initialEntries, clients, projects }: Props
                       {entry.client ? clientLabel(entry.client) : entry.client_id}
                     </span>
                     {entry.project && (
-                      <span className="rounded-full bg-blue-50 border border-blue-200 px
+                      <span className="rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-xs font-medium text-blue-700">
+                        {entry.project.name}
+                      </span>
+                    )}
+                  </div>
+                  {entry.notes && <p className="mt-0.5 text-xs text-gray-500 truncate">{entry.notes}</p>}
+                  <p className="mt-0.5 text-xs text-gray-400">
+                    {new Date(entry.created).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </p>
+                </div>
+                <div className="flex items-center gap-4 flex-shrink-0">
+                  <span className="font-semibold text-slate-900 tabular-nums">
+                    {entry.hours % 1 === 0 ? entry.hours.toFixed(0) : entry.hours.toFixed(2)}h
+                  </span>
+                  <button
+                    onClick={() => void deleteEntry(entry.id)}
+                    disabled={deletingId === entry.id}
+                    className="text-xs text-red-600 hover:text-red-800 disabled:opacity-40 transition"
+                  >
+                    {deletingId === entry.id ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
