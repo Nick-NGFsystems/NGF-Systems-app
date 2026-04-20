@@ -21,6 +21,7 @@ interface UpdateConfigBody {
   database_url?: string | null
   site_url?: string | null
   site_repo?: string | null
+  template_id?: string | null
 }
 
 const BOOLEAN_FIELDS = [
@@ -34,7 +35,7 @@ const BOOLEAN_FIELDS = [
   'feature_gallery',
 ] as const
 
-const STRING_FIELDS = ['booking_url', 'database_url', 'site_url', 'site_repo'] as const
+const STRING_FIELDS = ['booking_url', 'database_url', 'site_url', 'site_repo', 'template_id'] as const
 
 export async function PATCH(request: Request, context: RouteContext) {
   try {

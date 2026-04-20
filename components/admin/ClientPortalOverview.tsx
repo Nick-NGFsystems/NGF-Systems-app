@@ -13,6 +13,7 @@ interface ClientPortalOverviewProps {
   initialDatabaseUrl?: string | null
   initialSiteUrl?: string | null
   initialSiteRepo?: string | null
+  initialTemplateId?: string | null
 }
 
 interface ApiResponse {
@@ -28,11 +29,13 @@ export default function ClientPortalOverview({
   initialDatabaseUrl,
   initialSiteUrl,
   initialSiteRepo,
+  initialTemplateId,
 }: ClientPortalOverviewProps) {
   const router = useRouter()
   const [databaseUrl, setDatabaseUrl] = useState(initialDatabaseUrl ?? '')
   const [siteUrl, setSiteUrl] = useState(initialSiteUrl ?? '')
   const [siteRepo, setSiteRepo] = useState(initialSiteRepo ?? '')
+  const [templateId, setTemplateId] = useState(initialTemplateId ?? 'generic')
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -48,6 +51,7 @@ export default function ClientPortalOverview({
           database_url: databaseUrl,
           site_url: siteUrl,
           site_repo: siteRepo,
+          template_id: templateId,
         }),
       })
 
@@ -145,6 +149,19 @@ export default function ClientPortalOverview({
               placeholder="owner/repo"
               className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Website Template</label>
+            <select
+              value={templateId}
+              onChange={(event) => setTemplateId(event.target.value)}
+              className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
+            >
+              <option value="generic">Generic (default)</option>
+              <option value="wrenchtime">WrenchTime Cycles</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-400">Controls which section schema the portal website editor uses.</p>
           </div>
         </div>
 
