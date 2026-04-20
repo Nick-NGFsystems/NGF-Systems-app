@@ -1,6 +1,39 @@
 'use client'
 import { useState, useRef, useEffect, useCallback } from 'react'
-import type { TemplateSchema, FieldDefinition, RepeatableField, LeafField } from '@/lib/templates/types'
+// ── Schema types ─────────────────────────────────────────────────────────────
+// Schema is now scraped dynamically from the client's live site (data-ngf-* attrs).
+// These types mirror what the API route returns.
+
+type FieldType = 'text' | 'textarea' | 'image' | 'color' | 'toggle'
+
+interface LeafField {
+  type: FieldType
+  label: string
+  placeholder?: string
+  rows?: number
+  default?: string
+}
+
+interface RepeatableField {
+  type: 'repeatable'
+  label: string
+  itemLabel: string
+  minItems?: number
+  maxItems?: number
+  fields: Record<string, LeafField>
+  defaultItem: Record<string, string>
+}
+
+type FieldDefinition = LeafField | RepeatableField
+
+interface SectionSchema {
+  label: string
+  fields: Record<string, FieldDefinition>
+}
+
+interface TemplateSchema {
+  sections: Record<string, SectionSchema>
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ContentBlock = Record<string, any>
@@ -323,6 +356,12 @@ export default function WebsiteEditorPage() {
     })
   }, [pushToPreview, scheduleSave])
 
+  const reloadPreview = useCallback(() => {
+    if (iframeRef.current) {
+      iframeRef.current.src = iframeRef.current.src
+    }
+  }, [])
+
   const push = useCallback(async () => {
     setPushStatus('pushing')
     try {
@@ -334,10 +373,15 @@ export default function WebsiteEditorPage() {
       if (!saveRes.ok) { setPushStatus('error'); setTimeout(() => setPushStatus('idle'), 3000); return }
 
       const res = await fetch('/api/portal/website/push', { method: 'POST' })
-      if (res.ok) { setHasDraft(false); setPushStatus('published') } else { setPushStatus('error') }
+      if (res.ok) {
+        setHasDraft(false)
+        setPushStatus('published')
+        // Reload iframe so the preview reflects the newly published content
+        setTimeout(() => reloadPreview(), 1200)
+      } else { setPushStatus('error') }
       setTimeout(() => setPushStatus('idle'), 3000)
     } catch { setPushStatus('error'); setTimeout(() => setPushStatus('idle'), 3000) }
-  }, [content])
+  }, [content, reloadPreview])
 
   // Load content + schema on mount
   useEffect(() => {
@@ -358,10 +402,11 @@ export default function WebsiteEditorPage() {
     }).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
-  // Listen for iframe click-to-edit events
+  // Listen for iframe messages
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data?.type === 'ngfReady') {
+        // NgfEditBridge on client sites signals readiness — send edit mode + current content
         iframeRef.current?.contentWindow?.postMessage({ type: 'setEditMode', enabled: true }, '*')
         setTimeout(() => {
           iframeRef.current?.contentWindow?.postMessage({ type: 'contentUpdate', content }, '*')
@@ -372,10 +417,17 @@ export default function WebsiteEditorPage() {
         const fieldPart = field.split('.').pop() || field
         setClickEditField({ section, field, value: currentValue, label: humanize(fieldPart) })
       }
+      if (e.data?.type === 'sectionSelect') {
+        const section = e.data.section as string | null
+        if (section && schema?.sections[section]) {
+          setActiveSection(section)
+          setClickEditField(null)
+        }
+      }
     }
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
-  }, [content])
+  }, [content, schema])
 
   if (loading) {
     return (
@@ -403,7 +455,7 @@ export default function WebsiteEditorPage() {
   }
 
   const normalizedSiteUrl = siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`
-  const previewUrl = normalizedSiteUrl || (clientId ? `/preview?clientId=${clientId}` : '/preview')
+  const previewUrl = '/portal/website/preview'
   const sections = schema ? Object.entries(schema.sections) : []
 
   return (
@@ -525,8 +577,8 @@ export default function WebsiteEditorPage() {
               )}
 
               <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5">
-                <p className="text-xs font-semibold text-blue-800 mb-1">💡 Two ways to edit</p>
-                <p className="text-xs text-blue-600 leading-relaxed">Click a section above to manage all fields, or hover over glowing text in the preview and click to edit inline.</p>
+                <p className="text-xs font-semibold text-blue-800 mb-1">💡 Tip</p>
+                <p className="text-xs text-blue-600 leading-relaxed">Click any section in the preview to jump straight to its fields in the sidebar.</p>
               </div>
             </div>
           )}
@@ -544,10 +596,15 @@ export default function WebsiteEditorPage() {
           <span className="text-xs text-white/70 flex-1 text-center">
             {clickEditField
               ? `Editing: ${humanize(clickEditField.section)} — ${clickEditField.label}`
-              : 'Hover over glowing text in the preview and click to edit'}
+              : 'Click any section in the preview to jump to its fields'}
           </span>
-          {clickEditField && (
+          {clickEditField ? (
             <button onClick={() => setClickEditField(null)} className="text-xs text-white/60 hover:text-white transition-colors">Cancel</button>
+          ) : (
+            <button onClick={reloadPreview} title="Reload preview" className="text-xs text-white/50 hover:text-white/90 transition-colors flex items-center gap-1">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+              Reload
+            </button>
           )}
         </div>
         <div className="flex-1 bg-white relative">

@@ -104,11 +104,4 @@ export default async function DashboardPage() {
           {quickActions.map((action) => (
             <Link key={action.label} href={action.href} className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition hover:border-blue-600 hover:shadow-md">
               <span className="block text-sm font-semibold text-gray-900">{action.label}</span>
-              <span className="block text-xs text-gray-400 mt-0.5">{action.description}</span>
-            </Link>
-          ))}
-        </div>
-      </section>
-    </section>
-  )
-}
+              <span className="block text-xs text-gray-400 mt-0.5">{action.descriptio

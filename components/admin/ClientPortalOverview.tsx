@@ -13,7 +13,6 @@ interface ClientPortalOverviewProps {
   initialDatabaseUrl?: string | null
   initialSiteUrl?: string | null
   initialSiteRepo?: string | null
-  initialTemplateId?: string | null
 }
 
 interface ApiResponse {
@@ -29,13 +28,11 @@ export default function ClientPortalOverview({
   initialDatabaseUrl,
   initialSiteUrl,
   initialSiteRepo,
-  initialTemplateId,
 }: ClientPortalOverviewProps) {
   const router = useRouter()
   const [databaseUrl, setDatabaseUrl] = useState(initialDatabaseUrl ?? '')
   const [siteUrl, setSiteUrl] = useState(initialSiteUrl ?? '')
   const [siteRepo, setSiteRepo] = useState(initialSiteRepo ?? '')
-  const [templateId, setTemplateId] = useState(initialTemplateId ?? 'generic')
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -51,7 +48,6 @@ export default function ClientPortalOverview({
           database_url: databaseUrl,
           site_url: siteUrl,
           site_repo: siteRepo,
-          template_id: templateId,
         }),
       })
 
@@ -151,17 +147,13 @@ export default function ClientPortalOverview({
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Website Template</label>
-            <select
-              value={templateId}
-              onChange={(event) => setTemplateId(event.target.value)}
-              className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
-            >
-              <option value="generic">Generic (default)</option>
-              <option value="wrenchtime">WrenchTime Cycles</option>
-            </select>
-            <p className="mt-1 text-xs text-gray-400">Controls which section schema the portal website editor uses.</p>
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
+            <p className="text-xs font-semibold text-blue-800">Editor schema is auto-detected</p>
+            <p className="mt-0.5 text-xs text-blue-600 leading-relaxed">
+              The website editor reads editable fields directly from the live site&apos;s{' '}
+              <code className="rounded bg-blue-100 px-1 font-mono">data-ngf-*</code>{' '}
+              attributes. No template setup needed — the site defines what&apos;s editable.
+            </p>
           </div>
         </div>
 

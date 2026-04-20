@@ -4,14 +4,23 @@ export const wrenchtimeSchema: TemplateSchema = {
   id: 'wrenchtime',
   name: 'WrenchTime Cycles',
   sections: {
+    brand: {
+      label: 'Brand & Colors',
+      fields: {
+        businessName:   { type: 'text',  label: 'Business Name',   default: 'WrenchTime Cycles' },
+        tagline:        { type: 'text',  label: 'Tagline',          default: 'Motorcycle Service & Repair' },
+        primaryColor:   { type: 'color', label: 'Primary Color',    default: '#33d6ff' },
+        secondaryColor: { type: 'color', label: 'Accent Color',     default: '#ff6b2b' },
+      },
+    },
     hero: {
       label: 'Hero',
       fields: {
-        eyebrow: { type: 'text', label: 'Eyebrow Tag', default: 'Motorcycle Service & Repair' },
-        headlinePrefix: { type: 'text', label: 'Headline (first line)', default: 'Your Bike Deserves' },
-        headlineAccent: { type: 'text', label: 'Headline (accent)', default: 'Honest Work.' },
-        description: { type: 'textarea', label: 'Description', rows: 3, default: 'WrenchTime Cycles handles everything from oil changes to full diagnostics. Every job is reviewed before it\'s booked — no guesswork, no wasted trips.' },
-        cta: { type: 'text', label: 'Button Text', default: 'Request a Service' },
+        eyebrow:         { type: 'text',     label: 'Eyebrow Tag',         default: 'Motorcycle Service & Repair' },
+        headlinePrefix:  { type: 'text',     label: 'Headline (first line)', default: 'Your Bike Deserves' },
+        headlineAccent:  { type: 'text',     label: 'Headline (accent)',    default: 'Honest Work.' },
+        description:     { type: 'textarea', label: 'Description', rows: 3, default: 'WrenchTime Cycles handles everything from oil changes to full diagnostics. Every job is reviewed before it\'s booked — no guesswork, no wasted trips.' },
+        cta:             { type: 'text',     label: 'Button Text',          default: 'Request a Service' },
       },
     },
     how: {
@@ -25,8 +34,8 @@ export const wrenchtimeSchema: TemplateSchema = {
           minItems: 1,
           maxItems: 8,
           fields: {
-            title: { type: 'text', label: 'Step Title' },
-            desc: { type: 'textarea', label: 'Description', rows: 2 },
+            title: { type: 'text',     label: 'Step Title' },
+            desc:  { type: 'textarea', label: 'Description', rows: 2 },
           },
           defaultItem: { title: 'New Step', desc: 'Describe this step.' },
         },
@@ -43,7 +52,7 @@ export const wrenchtimeSchema: TemplateSchema = {
           minItems: 1,
           maxItems: 16,
           fields: {
-            name: { type: 'text', label: 'Service Name' },
+            name:  { type: 'text', label: 'Service Name' },
             price: { type: 'text', label: 'Price' },
           },
           defaultItem: { name: 'New Service', price: 'From $50' },
@@ -53,9 +62,9 @@ export const wrenchtimeSchema: TemplateSchema = {
     bottomCta: {
       label: 'Bottom CTA',
       fields: {
-        title: { type: 'text', label: 'Headline', default: 'Ready to get started?' },
-        description: { type: 'textarea', label: 'Description', rows: 2, default: 'Submit a request and we\'ll take it from there.' },
-        button: { type: 'text', label: 'Button Text', default: 'Request a Service' },
+        title:       { type: 'text',     label: 'Headline',     default: 'Ready to get started?' },
+        description: { type: 'textarea', label: 'Description',  rows: 2, default: 'Submit a request and we\'ll take it from there.' },
+        button:      { type: 'text',     label: 'Button Text',  default: 'Request a Service' },
       },
     },
     footer: {

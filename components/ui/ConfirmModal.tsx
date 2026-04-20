@@ -34,13 +34,4 @@ export function ConfirmModal({ message, confirmLabel = 'Delete', onConfirm, onCa
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 transition"
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body
-  )
-}
+            className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg

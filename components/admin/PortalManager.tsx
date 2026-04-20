@@ -675,6 +675,4 @@ export default function PortalManager({ clientId, initialConfig, initialFields, 
           </div>
         </div>
       )}
-    </div>
-  )
-                                                               }
+    </d

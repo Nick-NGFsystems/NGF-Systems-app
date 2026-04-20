@@ -171,8 +171,4 @@ export default function PreviewPage() {
       <footer className="py-8 px-6 text-center text-sm text-white" style={{ backgroundColor: secondary }}>
         <p className="font-semibold">{businessName}</p>
         {content.brand?.tagline && <p className="opacity-75 mt-1">{content.brand.tagline}</p>}
-        <p className="opacity-50 mt-3 text-xs">&copy; {new Date().getFullYear()} {businessName}. All rights reserved.</p>
-      </footer>
-    </div>
-  )
-}
+        <p className="opacity-50 mt-3 text-xs">&copy; {new 
