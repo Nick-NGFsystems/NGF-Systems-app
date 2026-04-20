@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    const client = clients.find((c) => {
+    const matchingClients = clients.filter((c) => {
       if (!c.config?.site_url) return false
       const siteNorm = c.config.site_url
         .replace(/^https?:\/\//, '')
@@ -78,19 +78,26 @@ export async function GET(req: NextRequest) {
       return siteNorm === normalized
     })
 
-    if (!client) {
+    if (matchingClients.length === 0) {
       // Return empty content rather than 404 — site uses defaults when nothing is saved
       return NextResponse.json({ content: {} }, { headers: CORS })
     }
 
-    const websiteContent = await db.websiteContent.findUnique({
-      where: { client_id: client.id },
+    // When multiple clients share the same domain (e.g. admin record + portal user),
+    // find the one that actually has published websiteContent.
+    const matchingIds = matchingClients.map((c) => c.id)
+    const websiteContent = await db.websiteContent.findFirst({
+      where: { client_id: { in: matchingIds } },
     })
 
-    const raw = (websiteContent?.content ?? {}) as Record<string, unknown>
+    if (!websiteContent) {
+      return NextResponse.json({ content: {}, client_id: matchingClients[0].id }, { headers: CORS })
+    }
+
+    const raw = (websiteContent.content ?? {}) as Record<string, unknown>
     const content = flatten(raw)
 
-    return NextResponse.json({ content, client_id: client.id }, { headers: CORS })
+    return NextResponse.json({ content, client_id: websiteContent.client_id }, { headers: CORS })
   } catch (err) {
     console.error('[public/content]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: CORS })
