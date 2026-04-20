@@ -149,7 +149,7 @@ All tables in `/prisma/schema.prisma`. Never edit the database directly.
 - `site_repo` — GitHub repo slug
 - `database_url` — external Neon DB URL for clients who have their own database (service requests)
 - `booking_url` — URL template with `[token]` placeholder used when approving service requests
-- `template_id` — which website editor schema to use: `"generic"` (default) or `"wrenchtime"`
+- `template_id` — **deprecated, unused.** Schema is now auto-detected by scraping the live site. Do not set or read this field.
 
 ### `website_content` — the editor's data store
 - `client_id` — unique per client
@@ -161,23 +161,38 @@ All tables in `/prisma/schema.prisma`. Never edit the database directly.
 
 ## Website Editor Architecture
 
-The portal website editor (`app/portal/website/page.tsx`) is a fully client-side schema-driven editor. The server never needs to know which fields exist — the schema drives everything.
+The portal website editor (`app/portal/website/page.tsx`) is a fully client-side schema-driven editor. The server never needs to know which fields exist — the schema is discovered automatically by scraping the live client site.
 
-### Template System (`lib/templates/`)
+### Schema Scraper (`app/api/portal/website/route.ts`)
 
+There is **no template system**. The `lib/templates/` folder is dead code — do not import from it or add to it.
+
+Instead, the GET handler calls `scrapeSchemaFromSite(siteUrl)`, which:
+1. Fetches the client's live site HTML
+2. Regex-parses all elements with `data-ngf-field` attributes (leaf fields)
+3. Regex-parses all elements with `data-ngf-group` attributes (repeatable arrays)
+4. Groups fields by section (derived from the field path prefix, e.g. `hero.headline` → `hero`)
+5. Returns a `SiteSchema` object used directly by the editor
+
+If the site is unreachable, `fallbackSchema()` returns a minimal brand+hero schema so the editor never crashes.
+
+**To add editable fields to a client site:** add `data-ngf-field`, `data-ngf-label`, `data-ngf-type`, and `data-ngf-section` attributes to elements in the client site HTML, then deploy. The editor picks them up automatically on next load — no changes needed in NGF app.
+
+**Repeatable arrays** use a `data-ngf-group` container with `data-ngf-item-fields` JSON declaring sub-fields:
+```html
+<div
+  data-ngf-group="services.items"
+  data-ngf-item-label="Service"
+  data-ngf-min-items="1"
+  data-ngf-max-items="16"
+  data-ngf-item-fields='[{"key":"name","label":"Service Name","type":"text"},{"key":"price","label":"Price","type":"text"}]'
+>
 ```
-lib/templates/
-  types.ts       — TemplateSchema, SectionSchema, FieldDefinition types
-  generic.ts     — Default schema (brand, hero, services, gallery, contact)
-  wrenchtime.ts  — WrenchTime Cycles schema (hero, how, services, bottomCta, footer)
-  index.ts       — Registry + getTemplate(id) function
+
+**Hidden anchor pattern** — for fields that have no visible DOM element (e.g. color pickers), use an invisible `sr-only` span:
+```html
+<span data-ngf-field="brand.primaryColor" data-ngf-label="Primary Color" data-ngf-type="color" data-ngf-section="Brand" aria-hidden="true" className="sr-only" />
 ```
-
-`getTemplate(id)` resolves a `template_id` string to a `TemplateSchema`. Called in `GET /api/portal/website` which includes the schema in its response. The editor uses the schema to render the correct fields and section structure — no hardcoded field names.
-
-**To add a new template:** create a new file in `lib/templates/`, define a `TemplateSchema`, register it in `index.ts`.
-
-**To add a template option to admin UI:** add an `<option>` to the `<select>` in `components/admin/ClientPortalOverview.tsx` and set the `template_id` on the client's config.
 
 ### Editor Data Flow
 
@@ -222,15 +237,15 @@ Each client site has a `lib/ngf.ts` that:
 - Enables click-to-edit by sending `fieldClick` messages when the user clicks an annotated element
 - Elements are annotated: `<h1 data-ngf-field=\"hero.headline\">{headlineText}</h1>`
 
-### Template Registry (in NGF app)
-`lib/templates/` defines the schema that drives the portal editor for each client. When adding a new client site:
-1. Create or select a template schema in `lib/templates/`
-2. Set `template_id` on the client's `client_configs` record in the NGF admin
-3. The editor reads the schema and renders the correct fields
-4. Add matching `data-ngf-field` attributes in the client site
+### Self-Describing Markup (in client sites)
+Client sites define their own editable schema via `data-ngf-*` attributes on HTML elements. No template files, no template_id, no NGF app changes needed when adding a new client site or new fields. When adding a new client site:
+1. Scaffold from `ngf-client-starter` repo, set env vars, customize design
+2. Add `data-ngf-field`, `data-ngf-label`, `data-ngf-type`, `data-ngf-section` to every editable element
+3. Deploy the client site — the portal editor auto-discovers all editable fields on next load
+4. Set `site_url` in the client's config in the NGF admin (required for the scraper to find the site)
 
 ### Boilerplate
-New client sites should be scaffolded from the `ngf-client-starter` repo (in the GitHub org). Fork it, set env vars, customize design and template ID.
+New client sites should be scaffolded from the `ngf-client-starter` repo (in the GitHub org). Fork it, set env vars, and customize design — no template ID needed.
 
 ---
 
@@ -266,7 +281,7 @@ The route calls `BetaAnalyticsDataClient` from `@google-analytics/data` and retu
 - **`lib/client-db.ts`** — `getClientDb(databaseUrl)` — get/create cached Prisma client for a client's external database
 - **`lib/auth.ts`** — Clerk auth helpers
 - **`lib/stripe.ts`** — single Stripe client instance
-- **`lib/templates/`** — template schema registry (see Website Editor section)
+- **`lib/templates/`** — **dead code, do not use.** Schema is now scraped from the live client site at runtime.
 
 ---
 
@@ -372,6 +387,8 @@ No `experimental` or `serverActions` blocks — this was removed. The config onl
 - Do not expect a role change to take effect while the user is still signed in — they must re-authenticate
 - Do not write inline styles — Tailwind only
 - Do not create new layout components — use `AdminLayout`, `PortalLayout`, or `PublicLayout` in `/components/layout/`
-- Do not hardcode field names in the website editor — derive everything from the `TemplateSchema`
+- Do not hardcode field names in the website editor — the schema is derived by scraping `data-ngf-*` attributes from the live client site
 - Do not host client websites through the NGF app (`/w/` routes have been removed) — every client site is a separate Vercel project
 - Do not write to `website_content.content` directly from the portal — only the `/push` route promotes draft to published
+- Do not add new templates to `lib/templates/` — the folder is dead code. All schema changes go in the client site HTML via `data-ngf-*` attributes
+- Do not set or read `client_configs.template_id` — it is deprecated and ignored
