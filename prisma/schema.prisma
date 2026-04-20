@@ -44,6 +44,7 @@ model ClientConfig {
   database_url     String?
   site_url         String?
   site_repo        String?
+  template_id      String?  @default("generic")
   created          DateTime @default(now())
   updated          DateTime @updatedAt
   client           Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)

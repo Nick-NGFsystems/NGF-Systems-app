@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
+import { getTemplate } from '@/lib/templates'
 
 export async function GET() {
   const { userId } = await auth()
@@ -17,8 +18,8 @@ export async function GET() {
       where: { client_id: client.id },
     })
 
-    // Editor loads draft_content if it exists, otherwise falls back to published content
     const editorContent = websiteContent?.draft_content ?? websiteContent?.content ?? {}
+    const schema = getTemplate(client.config?.template_id)
 
     return NextResponse.json({
       content: editorContent,
@@ -26,6 +27,7 @@ export async function GET() {
       has_draft: !!websiteContent?.draft_content,
       site_url: client.config?.site_url ?? null,
       client_id: client.id,
+      schema,
     })
   } catch (err) {
     console.error('[portal/website GET]', err)
