@@ -79,7 +79,7 @@ async function scrapeSchemaFromSite(siteUrl: string): Promise<SiteSchema | null>
     const attrRe = (name: string) => new RegExp(`data-${name}="([^"]+)"`, 'i')
 
     // section label → { fieldKey → field def }
-    const sectionMap: Record<string, { label: string; fields: Record<string, LeafField> }> = {}
+    const sectionMap: Record<string, { label: string; fields: Record<string, FieldDefinition> }> = {}
     // Track insertion order for sections
     const sectionOrder: string[] = []
 
