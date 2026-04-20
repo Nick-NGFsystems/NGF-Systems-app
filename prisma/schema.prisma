@@ -253,4 +253,7 @@ model WebsiteContent {
   draft_content Json?     // Draft — saved but not yet published
   published_at  DateTime?
   created       DateTime  @default(now())
-  updated       DateTime  @u
+  updated       DateTime  @updatedAt
+
+  @@map("website_content")
+}
