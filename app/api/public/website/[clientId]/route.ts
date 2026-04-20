@@ -18,6 +18,11 @@ export async function GET(
   const { clientId } = await params
   const websiteContent = await db.websiteContent.findUnique({
     where: { client_id: clientId },
+    select: {
+      client_id: true,
+      content: true,
+      published_at: true,
+    },
   })
   if (!websiteContent) {
     return NextResponse.json({ error: 'Not found' }, { status: 404, headers: CORS })
