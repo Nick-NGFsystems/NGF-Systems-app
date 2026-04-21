@@ -457,7 +457,7 @@ export default function WebsiteEditorPage() {
   }
 
   const normalizedSiteUrl = siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`
-  const previewUrl = '/portal/website/preview'
+  const previewUrl = normalizedSiteUrl
   const sections = schema ? Object.entries(schema.sections) : []
 
   return (
