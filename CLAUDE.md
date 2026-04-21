@@ -391,3 +391,4 @@ No `experimental` or `serverActions` blocks — this was removed. The config onl
 - Do not write to `website_content.content` directly from the portal — only the `/push` route promotes draft to published
 - Do not add new templates to `lib/templates/` — the folder is dead code. All schema changes go in the client site HTML via `data-ngf-*` attributes
 - Do not set or read `client_configs.template_id` — it is deprecated and ignored
+
