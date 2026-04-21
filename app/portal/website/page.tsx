@@ -391,10 +391,12 @@ export default function WebsiteEditorPage() {
         (window as Window & { __schema?: TemplateSchema }).__schema = data.schema
         const withDefaults = applySchemaDefaults(data.content ?? {}, data.schema)
         setContent(withDefaults)
+        pushToPreview(withDefaults)
         const firstSection = Object.keys(data.schema.sections)[0]
         if (firstSection) setActiveSection(firstSection)
       } else if (data?.content) {
         setContent(data.content as ContentBlock)
+        pushToPreview(data.content as ContentBlock)
       }
       if (data?.has_draft) setHasDraft(true)
       if (data?.site_url) setSiteUrl(data.site_url as string)
