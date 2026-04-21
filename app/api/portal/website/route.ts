@@ -261,6 +261,7 @@ export async function GET() {
       content:           editorContent,
       published_content: websiteContent?.content ?? {},
       has_draft:         !!websiteContent?.draft_content,
+      published_at:      websiteContent?.published_at?.toISOString() ?? null,
       site_url:          siteUrl,
       client_id:         client.id,
       schema,
