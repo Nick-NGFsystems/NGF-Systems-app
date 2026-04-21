@@ -281,7 +281,6 @@ The route calls `BetaAnalyticsDataClient` from `@google-analytics/data` and retu
 - **`lib/client-db.ts`** — `getClientDb(databaseUrl)` — get/create cached Prisma client for a client's external database
 - **`lib/auth.ts`** — Clerk auth helpers
 - **`lib/stripe.ts`** — single Stripe client instance
-- **`lib/templates/`** — **dead code, do not use.** Schema is now scraped from the live client site at runtime.
 
 ---
 
