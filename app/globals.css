@@ -7,6 +7,24 @@ html {
   scrollbar-gutter: stable;
 }
 
+/* ── Prevent iOS Safari auto-zoom on input focus ──
+   Safari zooms in when an input's font-size is below 16px.
+   This resets inputs to 16px on mobile only, then lets the
+   browser scale them back down visually so the design is unchanged. */
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="search"],
+  input[type="tel"],
+  input[type="url"],
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 /* ── Clerk widget: force full-width on all screen sizes ── */
 .cl-rootBox {
   width: 100% !important;
