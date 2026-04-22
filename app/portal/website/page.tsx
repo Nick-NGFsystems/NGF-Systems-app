@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -310,6 +310,14 @@ export default function WebsiteEditorPage() {
   const [clickField,    setClickField]    = useState<ClickField | null>(null)
   const [popoverPos,    setPopoverPos]    = useState<PopoverPosition>({ top: 0, left: 0, isSheet: false })
 
+  // Published content with schema defaults applied — used as the baseline for
+  // "pending changes" comparison. This prevents schema-initialized empty strings
+  // from showing as changes when nothing has actually been edited yet.
+  const baseContent = useMemo<ContentBlock>(
+    () => schema ? applySchemaDefaults(publishedContent, schema) : publishedContent,
+    [publishedContent, schema]
+  )
+
   const pushToPreview = useCallback((c: ContentBlock) => {
     if (previewTimer.current) clearTimeout(previewTimer.current)
     previewTimer.current = setTimeout(() => {
@@ -362,24 +370,21 @@ export default function WebsiteEditorPage() {
 
   const revertSection = useCallback((sectionKey: string) => {
     setContent(prev => {
-      const next = { ...prev, [sectionKey]: publishedContent[sectionKey] ?? {} }
+      const next = { ...prev, [sectionKey]: baseContent[sectionKey] ?? {} }
       pushToPreview(next)
       scheduleSave(next)
       return next
     })
-  }, [publishedContent, pushToPreview, scheduleSave])
+  }, [baseContent, pushToPreview, scheduleSave])
 
   const revertAll = useCallback(() => {
-    setContent(prev => {
-      const next = { ...prev }
-      for (const key of Object.keys(publishedContent)) {
-        next[key] = publishedContent[key]
-      }
+    setContent(() => {
+      const next = { ...baseContent }
       pushToPreview(next)
       scheduleSave(next)
       return next
     })
-  }, [publishedContent, pushToPreview, scheduleSave])
+  }, [baseContent, pushToPreview, scheduleSave])
 
   const reloadPreview = useCallback(() => {
     if (iframeRef.current) iframeRef.current.src = iframeRef.current.src
@@ -485,7 +490,7 @@ export default function WebsiteEditorPage() {
   }
 
   const normalizedSiteUrl = siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`
-  const changedSections   = getChangedSections(content, publishedContent, schema)
+  const changedSections   = getChangedSections(content, baseContent, schema)
   const totalChanges      = changedSections.length
 
   const publishLabel =
