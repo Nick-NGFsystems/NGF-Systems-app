@@ -1,26 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
-import {
-  stripe,
-  PLAN_FEATURES,
-  LAPSED_FEATURES,
-  PlanKey,
-  PLANS,
-  subscriptionPeriod,
-  PlanFeatures,
-} from '@/lib/stripe'
+import { stripe, subscriptionPeriod } from '@/lib/stripe'
 import { db } from '@/lib/db'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Stripe webhook
 //
-// Ordering guarantees we rely on:
-//   1. Signature verified first — unsigned events are rejected with 400.
-//   2. Event deduplicated via processed_stripe_events — replays no-op.
-//   3. Handler errors return 500 so Stripe retries. All handlers use idempotent
-//      upserts/updateMany so a retry after partial success converges.
-//   4. The dedup row is only written at the end, so partial failure → Stripe
-//      retry → whole event re-processed (safe thanks to idempotent writes).
+// Responsibilities:
+//   1. Signature verification (reject unsigned).
+//   2. Idempotency via processed_stripe_events (short-circuit replays).
+//   3. Mirror Stripe state into our DB (Subscription + Payment rows).
+//   4. Do NOT touch ClientConfig feature toggles — admin controls those
+//      manually in the portal config UI.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -32,7 +23,6 @@ export async function POST(req: NextRequest) {
   }
 
   let event: Stripe.Event
-
   try {
     event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET)
   } catch (err) {
@@ -40,59 +30,47 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
 
-  // Idempotency short-circuit. If we've already processed this event id,
-  // acknowledge with 200 so Stripe stops retrying.
-  const already = await db.processedStripeEvent.findUnique({
-    where: { event_id: event.id },
-  })
+  // Idempotency short-circuit
+  const already = await db.processedStripeEvent.findUnique({ where: { event_id: event.id } })
   if (already) {
     return NextResponse.json({ received: true, deduped: true })
   }
 
   try {
     switch (event.type) {
-      case 'checkout.session.completed': {
-        await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session)
+      case 'customer.subscription.created':
+        await handleSubscriptionCreated(event.data.object as Stripe.Subscription)
         break
-      }
 
       case 'customer.subscription.updated':
-      case 'customer.subscription.created': {
-        await handleSubscriptionSync(event.data.object as Stripe.Subscription)
+        await handleSubscriptionUpdated(event.data.object as Stripe.Subscription)
         break
-      }
 
-      case 'customer.subscription.deleted': {
+      case 'customer.subscription.deleted':
         await handleSubscriptionDeleted(event.data.object as Stripe.Subscription)
         break
-      }
 
-      case 'invoice.payment_failed': {
-        await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice)
-        break
-      }
-
-      case 'invoice.paid': {
+      case 'invoice.paid':
         await handleInvoicePaid(event.data.object as Stripe.Invoice)
         break
-      }
 
-      case 'charge.refunded': {
+      case 'invoice.payment_failed':
+        await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice)
+        break
+
+      case 'charge.refunded':
         await handleChargeRefunded(event.data.object as Stripe.Charge)
         break
-      }
 
-      case 'charge.dispute.created': {
+      case 'charge.dispute.created':
         await handleDisputeCreated(event.data.object as Stripe.Dispute)
         break
-      }
 
       default:
-        // Ignored event type — still log the dedup row so retries short-circuit.
+        // Ignored event type; still log for dedup.
         break
     }
 
-    // Mark processed.
     await db.processedStripeEvent.create({
       data: { event_id: event.id, event_type: event.type },
     })
@@ -105,120 +83,73 @@ export async function POST(req: NextRequest) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Handlers
+// Subscription handlers
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
-  const clientId = session.metadata?.client_id
-  const planKey  = session.metadata?.plan_key as PlanKey | undefined
-  const planName = session.metadata?.plan_name ?? 'Unknown'
+async function handleSubscriptionCreated(sub: Stripe.Subscription) {
+  const clientId = sub.metadata?.client_id
+  const planKey  = sub.metadata?.plan_key ?? null
+  const planName = sub.metadata?.plan_name ?? 'Managed Subscription'
 
-  if (!clientId || !planKey || !(planKey in PLANS)) {
-    console.warn('[stripe webhook] checkout.session.completed missing metadata', {
-      clientId, planKey, session_id: session.id,
-    })
+  if (!clientId) {
+    console.warn('[stripe webhook] subscription.created missing client_id metadata', { sub_id: sub.id })
     return
   }
 
-  const plan = PLANS[planKey]
+  const { start, end }  = subscriptionPeriod(sub)
+  const firstItemAmount = sub.items.data[0]?.price.unit_amount ?? 0
+  const interval        = sub.items.data[0]?.price.recurring?.interval ?? 'month'
+  const planType        = interval === 'year' ? 'YEARLY' : 'MONTHLY'
 
-  if (session.mode === 'subscription' && session.subscription) {
-    const sub = await stripe.subscriptions.retrieve(session.subscription as string)
-    const { start, end } = subscriptionPeriod(sub)
-
-    await db.subscription.upsert({
-      where:  { stripe_subscription_id: sub.id },
-      create: {
-        client_id:               clientId,
-        stripe_subscription_id:  sub.id,
-        stripe_customer_id:      sub.customer as string,
-        plan_key:                planKey,
-        plan_name:               planName,
-        plan_type:               'MONTHLY',
-        status:                  sub.status.toUpperCase(),
-        amount_cents:            plan.amount,
-        current_period_start:    start,
-        current_period_end:      end,
-        cancel_at_period_end:    sub.cancel_at_period_end,
-      },
-      update: {
-        client_id:               clientId,
-        stripe_customer_id:      sub.customer as string,
-        plan_key:                planKey,
-        plan_name:               planName,
-        status:                  sub.status.toUpperCase(),
-        amount_cents:            plan.amount,
-        current_period_start:    start,
-        current_period_end:      end,
-        cancel_at_period_end:    sub.cancel_at_period_end,
-      },
-    })
-
-    await applyFeaturesToClient(clientId, PLAN_FEATURES[planKey])
-    await activateClient(clientId)
-  } else if (session.mode === 'payment') {
-    // One-time build — record in payments table, don't touch subscriptions.
-    await db.payment.upsert({
-      where:  { stripe_checkout_session: session.id },
-      create: {
-        client_id:               clientId,
-        stripe_customer_id:      session.customer as string | null,
-        stripe_checkout_session: session.id,
-        stripe_payment_intent:   (session.payment_intent as string | null) ?? null,
-        plan_key:                planKey,
-        plan_name:               planName,
-        status:                  'PAID',
-        amount_cents:            session.amount_total ?? plan.amount,
-      },
-      update: {
-        stripe_customer_id:    session.customer as string | null,
-        stripe_payment_intent: (session.payment_intent as string | null) ?? null,
-        plan_key:              planKey,
-        plan_name:             planName,
-        status:                'PAID',
-        amount_cents:          session.amount_total ?? plan.amount,
-      },
-    })
-
-    await applyFeaturesToClient(clientId, PLAN_FEATURES[planKey])
-    await activateClient(clientId)
-  }
+  await db.subscription.upsert({
+    where: { stripe_subscription_id: sub.id },
+    create: {
+      client_id:               clientId,
+      stripe_subscription_id:  sub.id,
+      stripe_customer_id:      sub.customer as string,
+      plan_key:                planKey,
+      plan_name:               planName,
+      plan_type:               planType,
+      status:                  sub.status.toUpperCase(),
+      amount_cents:            firstItemAmount,
+      current_period_start:    start,
+      current_period_end:      end,
+      cancel_at_period_end:    sub.cancel_at_period_end,
+    },
+    update: {
+      // If we somehow see .created for an already-tracked sub, just sync.
+      stripe_customer_id:      sub.customer as string,
+      status:                  sub.status.toUpperCase(),
+      amount_cents:            firstItemAmount,
+      current_period_start:    start,
+      current_period_end:      end,
+      cancel_at_period_end:    sub.cancel_at_period_end,
+    },
+  })
 }
 
-async function handleSubscriptionSync(sub: Stripe.Subscription) {
-  const { start, end } = subscriptionPeriod(sub)
-  const status         = sub.status.toUpperCase()
+async function handleSubscriptionUpdated(sub: Stripe.Subscription) {
+  const { start, end }  = subscriptionPeriod(sub)
+  const firstItemAmount = sub.items.data[0]?.price.unit_amount ?? 0
 
   const updated = await db.subscription.updateMany({
     where: { stripe_subscription_id: sub.id },
     data: {
-      status,
-      current_period_start: start,
-      current_period_end:   end,
-      cancel_at_period_end: sub.cancel_at_period_end,
+      status:                sub.status.toUpperCase(),
+      amount_cents:          firstItemAmount,
+      current_period_start:  start,
+      current_period_end:    end,
+      cancel_at_period_end:  sub.cancel_at_period_end,
     },
   })
 
   if (updated.count === 0) {
-    // Subscription created outside of a checkout (e.g. admin created it in
-    // the Stripe dashboard). We don't know the client — log and move on.
-    console.warn('[stripe webhook] subscription sync for untracked sub', sub.id)
-    return
-  }
-
-  if (status === 'PAST_DUE' || status === 'UNPAID' || status === 'CANCELED' || status === 'CANCELLED') {
-    const row = await db.subscription.findFirst({
-      where: { stripe_subscription_id: sub.id },
-      select: { client_id: true },
-    })
-    if (row) await applyFeaturesToClient(row.client_id, LAPSED_FEATURES)
-  } else if (status === 'ACTIVE' || status === 'TRIALING') {
-    const row = await db.subscription.findFirst({
-      where: { stripe_subscription_id: sub.id },
-      select: { client_id: true, plan_key: true },
-    })
-    if (row?.plan_key && row.plan_key in PLAN_FEATURES) {
-      await applyFeaturesToClient(row.client_id, PLAN_FEATURES[row.plan_key as PlanKey])
+    // Sub created outside our system (e.g. directly in Stripe dashboard).
+    // Treat as create if metadata has a client_id, else log and move on.
+    if (sub.metadata?.client_id) {
+      await handleSubscriptionCreated(sub)
+    } else {
+      console.warn('[stripe webhook] untracked subscription updated', sub.id)
     }
   }
 }
@@ -228,44 +159,79 @@ async function handleSubscriptionDeleted(sub: Stripe.Subscription) {
     where: { stripe_subscription_id: sub.id },
     data:  { status: 'CANCELLED' },
   })
+}
 
-  const row = await db.subscription.findFirst({
-    where:  { stripe_subscription_id: sub.id },
-    select: { client_id: true },
-  })
-  if (row) await applyFeaturesToClient(row.client_id, LAPSED_FEATURES)
+// ─────────────────────────────────────────────────────────────────────────────
+// Invoice handlers
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handleInvoicePaid(invoice: Stripe.Invoice) {
+  // Record the payment for history.
+  const customerId  = (typeof invoice.customer === 'string') ? invoice.customer : invoice.customer?.id ?? null
+  const paymentIntent = (typeof (invoice as unknown as { payment_intent?: string | null }).payment_intent === 'string')
+    ? (invoice as unknown as { payment_intent: string }).payment_intent
+    : null
+
+  // Find the client from the customer ID.
+  const client = customerId
+    ? await db.client.findFirst({ where: { stripe_customer_id: customerId }, select: { id: true } })
+    : null
+
+  const clientId = invoice.metadata?.client_id ?? client?.id ?? null
+
+  if (!clientId) {
+    console.warn('[stripe webhook] invoice.paid with no resolvable client', { invoice_id: invoice.id, customerId })
+    // Still refresh sub status below even if we can't record the payment.
+  } else if (invoice.id) {
+    await db.payment.upsert({
+      where:  { stripe_checkout_session: invoice.id }, // repurpose this column as "stripe_invoice_id" for invoice-based payments
+      create: {
+        client_id:                clientId,
+        stripe_customer_id:       customerId,
+        stripe_checkout_session:  invoice.id,          // invoice id, not checkout session
+        stripe_payment_intent:    paymentIntent,
+        plan_key:                 invoice.metadata?.plan_key ?? null,
+        plan_name:                invoice.description ?? invoice.lines.data[0]?.description ?? 'Invoice',
+        status:                   'PAID',
+        amount_cents:             invoice.amount_paid ?? invoice.total ?? 0,
+      },
+      update: {
+        stripe_customer_id:    customerId,
+        stripe_payment_intent: paymentIntent,
+        status:                'PAID',
+        amount_cents:          invoice.amount_paid ?? invoice.total ?? 0,
+      },
+    })
+  }
+
+  // Refresh the related subscription status (period may have advanced).
+  const subId = extractInvoiceSubscriptionId(invoice)
+  if (subId) {
+    try {
+      const sub = await stripe.subscriptions.retrieve(subId)
+      await handleSubscriptionUpdated(sub)
+    } catch (err) {
+      console.warn('[stripe webhook] could not re-fetch subscription', { subId, err })
+    }
+  }
 }
 
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   const subId = extractInvoiceSubscriptionId(invoice)
   if (!subId) return
-
   await db.subscription.updateMany({
     where: { stripe_subscription_id: subId },
     data:  { status: 'PAST_DUE' },
   })
-
-  const row = await db.subscription.findFirst({
-    where:  { stripe_subscription_id: subId },
-    select: { client_id: true },
-  })
-  if (row) await applyFeaturesToClient(row.client_id, LAPSED_FEATURES)
 }
 
-async function handleInvoicePaid(invoice: Stripe.Invoice) {
-  // Successful renewal — refresh status from Stripe since the subscription
-  // period may have advanced.
-  const subId = extractInvoiceSubscriptionId(invoice)
-  if (!subId) return
-
-  const sub = await stripe.subscriptions.retrieve(subId)
-  await handleSubscriptionSync(sub)
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Charge handlers
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function handleChargeRefunded(charge: Stripe.Charge) {
   const pi = typeof charge.payment_intent === 'string' ? charge.payment_intent : null
   if (!pi) return
-
   await db.payment.updateMany({
     where: { stripe_payment_intent: pi },
     data:  { status: 'REFUNDED' },
@@ -280,7 +246,6 @@ async function handleDisputeCreated(dispute: Stripe.Dispute) {
       data:  { status: 'DISPUTED' },
     })
   }
-  // Chargebacks are severe — log prominently.
   console.error('[stripe webhook] dispute created', {
     dispute_id: dispute.id,
     reason:     dispute.reason,
@@ -293,29 +258,10 @@ async function handleDisputeCreated(dispute: Stripe.Dispute) {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function applyFeaturesToClient(clientId: string, features: PlanFeatures) {
-  await db.clientConfig.upsert({
-    where:  { client_id: clientId },
-    create: { client_id: clientId, ...features },
-    update: features,
-  })
-}
-
-async function activateClient(clientId: string) {
-  await db.client.update({
-    where: { id: clientId },
-    data:  { status: 'ACTIVE' },
-  })
-}
-
-// Stripe has moved the subscription reference around across API versions.
-// Check every known location so this survives version bumps.
 type InvoiceSubShape = {
   subscription?: string | Stripe.Subscription | null
-  parent?: {
-    subscription_details?: { subscription?: string | Stripe.Subscription | null }
-  }
-  lines?: { data: Array<{ subscription?: string | null }> }
+  parent?: { subscription_details?: { subscription?: string | Stripe.Subscription | null } }
+  lines?:  { data: Array<{ subscription?: string | null }> }
 }
 
 function extractInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
