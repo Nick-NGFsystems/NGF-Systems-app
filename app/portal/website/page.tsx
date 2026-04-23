@@ -851,15 +851,6 @@ export default function WebsiteEditorPage() {
     })
   }, [pushToPreview, scheduleSave])
 
-  const revertSection = useCallback((sectionKey: string) => {
-    setContent(prev => {
-      const next = { ...prev, [sectionKey]: baseContent[sectionKey] ?? {} }
-      pushToPreview(next)
-      flushSaveOrClear(next)
-      return next
-    })
-  }, [baseContent, pushToPreview, flushSaveOrClear])
-
   // Immediate flush used by every revert operation. Cancels the debounced
   // save and either POSTs the current draft OR — if the content equals the
   // baseline once empties are stripped — DELETEs the draft so has_draft
@@ -887,6 +878,15 @@ export default function WebsiteEditorPage() {
     }).catch(() => setSaveStatus('error'))
       .finally(() => setTimeout(() => setSaveStatus('idle'), 1500))
   }, [stripEmpty, baseContent])
+
+  const revertSection = useCallback((sectionKey: string) => {
+    setContent(prev => {
+      const next = { ...prev, [sectionKey]: baseContent[sectionKey] ?? {} }
+      pushToPreview(next)
+      flushSaveOrClear(next)
+      return next
+    })
+  }, [baseContent, pushToPreview, flushSaveOrClear])
 
   const revertAll = useCallback(() => {
     setContent(() => {
