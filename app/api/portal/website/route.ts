@@ -62,7 +62,7 @@ export interface SiteSchema {
 
 interface ItemFieldDef { key: string; label: string; type: FieldType }
 
-async function scrapeSchemaFromSite(siteUrl: string): Promise<SiteSchema | null> {
+async function scrapeSiteHtml(siteUrl: string): Promise<string | null> {
   try {
     const rawUrl = siteUrl.trim().replace(/\/$/, '')
     const base   = rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`
@@ -71,7 +71,16 @@ async function scrapeSchemaFromSite(siteUrl: string): Promise<SiteSchema | null>
       headers: { 'User-Agent': 'NGF-Portal/1.0 (schema-scraper)' },
     })
     if (!res.ok) return null
-    const html = await res.text()
+    return await res.text()
+  } catch {
+    return null
+  }
+}
+
+async function scrapeSchemaFromSite(siteUrl: string, htmlArg?: string): Promise<SiteSchema | null> {
+  try {
+    const html = htmlArg ?? (await scrapeSiteHtml(siteUrl))
+    if (!html) return null
 
     // ── Parse leaf fields ──────────────────────────────────────────────────
     // Match: data-ngf-field="..." data-ngf-label="..." data-ngf-type="..." data-ngf-section="..."
@@ -224,6 +233,57 @@ async function scrapeSchemaFromSite(siteUrl: string): Promise<SiteSchema | null>
   }
 }
 
+/**
+ * Extract the rendered text value for every `data-ngf-field` so the editor
+ * can show real previews in the sidebar (e.g. the actual review quote, not
+ * just "Review 1"). Simple regex: first chunk of text between the opening
+ * tag and the next `<`. Good enough for 80% of cases; we'd need a real HTML
+ * parser for 100%, but those edge cases (nested markup) just show a shorter
+ * snippet, which is fine for a sidebar preview.
+ *
+ * For image fields we capture `src` instead of text content.
+ */
+function scrapeFieldValuesFromHtml(html: string): Record<string, string> {
+  const values: Record<string, string> = {}
+
+  // Text fields — opening tag then first run of non-tag chars.
+  const textRe = /<[a-z][^>]*\sdata-ngf-field="([^"]+)"[^>]*>([^<]*)/gi
+  let tm: RegExpExecArray | null
+  while ((tm = textRe.exec(html)) !== null) {
+    const path = tm[1]
+    const raw  = tm[2] ?? ''
+    // Decode common HTML entities
+    const decoded = raw
+      .replace(/&#x27;/g, "'")
+      .replace(/&apos;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g,  '&')
+      .replace(/&lt;/g,   '<')
+      .replace(/&gt;/g,   '>')
+      .replace(/&nbsp;/g, ' ')
+      .trim()
+    // First non-empty occurrence wins (later duplicates — e.g. nav in both
+    // header and footer — don't overwrite).
+    if (decoded && values[path] === undefined) {
+      values[path] = decoded
+    }
+  }
+
+  // Image fields — <img ... data-ngf-field="..." ... src="..."> (src before or after)
+  const imgRe = /<img\b[^>]*data-ngf-field="([^"]+)"[^>]*>/gi
+  let im: RegExpExecArray | null
+  while ((im = imgRe.exec(html)) !== null) {
+    const tag  = im[0]
+    const path = im[1]
+    const srcMatch = /\ssrc="([^"]+)"/i.exec(tag)
+    if (srcMatch && values[path] === undefined) {
+      values[path] = srcMatch[1]
+    }
+  }
+
+  return values
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Fallback minimal schema — used when site is unreachable or has no annotations
 // ─────────────────────────────────────────────────────────────────────────────
@@ -273,11 +333,19 @@ export async function GET() {
     const editorContent = websiteContent?.draft_content ?? websiteContent?.content ?? {}
     const siteUrl       = client.config?.site_url ?? null
 
-    // Scrape the schema from the live site. Falls back to a minimal generic
-    // schema if the site is unreachable or has no data-ngf-* annotations.
-    const schema = siteUrl
-      ? (await scrapeSchemaFromSite(siteUrl)) ?? fallbackSchema()
-      : fallbackSchema()
+    // Scrape the live site once — derive BOTH schema and current rendered
+    // values from the same HTML. `site_values` feeds the editor's sidebar
+    // previews (so each Review row shows the actual quote instead of an
+    // empty slot) but is never persisted to the DB.
+    let schema: SiteSchema = fallbackSchema()
+    let siteValues: Record<string, string> = {}
+    if (siteUrl) {
+      const html = await scrapeSiteHtml(siteUrl)
+      if (html) {
+        schema     = (await scrapeSchemaFromSite(siteUrl, html)) ?? fallbackSchema()
+        siteValues = scrapeFieldValuesFromHtml(html)
+      }
+    }
 
     return NextResponse.json({
       content:           editorContent,
@@ -287,6 +355,7 @@ export async function GET() {
       site_url:          siteUrl,
       client_id:         client.id,
       schema,
+      site_values:       siteValues,
     })
   } catch (err) {
     console.error('[portal/website GET]', err)

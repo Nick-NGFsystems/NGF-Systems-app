@@ -374,6 +374,18 @@ export default function WebsiteEditorPage() {
 
   const [content,          setContent]          = useState<ContentBlock>({})
   const [publishedContent, setPublishedContent] = useState<ContentBlock>({})
+  // Flat dot-notation map of every field's currently-rendered value on the
+  // live site (text for text/textarea, src for images). Used for sidebar
+  // previews so row labels show real review quotes / project names instead
+  // of empty slots. Never written to the DB.
+  const [siteValues,       setSiteValues]        = useState<Record<string, string>>({})
+  // Sidebar width — drag handle adjusts in real time, persisted to
+  // localStorage so the preference carries across sessions.
+  const [sidebarWidth,     setSidebarWidth]      = useState<number>(() => {
+    if (typeof window === 'undefined') return 320
+    const saved = Number(window.localStorage.getItem('ngfEditorSidebarWidth'))
+    return saved && saved >= 220 && saved <= 720 ? saved : 320
+  })
   const [schema,           setSchema]           = useState<TemplateSchema | null>(null)
   const [saveStatus,       setSaveStatus]       = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [pushStatus,       setPushStatus]       = useState<'idle' | 'pushing' | 'published' | 'error'>('idle')
@@ -699,6 +711,7 @@ export default function WebsiteEditorPage() {
         pushToPreview(data.content as ContentBlock)
       }
       setPublishedContent((data?.published_content ?? {}) as ContentBlock)
+      if (data?.site_values)  setSiteValues(data.site_values as Record<string, string>)
       if (data?.has_draft)    setHasDraft(true)
       if (data?.site_url)     setSiteUrl(data.site_url as string)
       if (data?.published_at) setPublishedAt(data.published_at as string)
@@ -794,8 +807,11 @@ export default function WebsiteEditorPage() {
   return (
     <div className="flex h-screen overflow-hidden bg-gray-100">
 
-      {/* ── Left sidebar (desktop) ── */}
-      <aside className="hidden md:flex w-56 flex-col flex-shrink-0 bg-white border-r border-gray-100 overflow-hidden">
+      {/* ── Left sidebar (desktop) — resizable via the drag handle on its right edge ── */}
+      <aside
+        className="hidden md:flex flex-col flex-shrink-0 bg-white border-r border-gray-100 overflow-hidden relative"
+        style={{ width: sidebarWidth }}
+      >
 
         {/* Site link + publish */}
         <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex-shrink-0">
@@ -911,20 +927,33 @@ export default function WebsiteEditorPage() {
                       </div>
                       <div className="mt-1.5 space-y-1">
                         {items.map((item, i) => {
-                          const firstNonEmpty = Object.values(item).find(v => typeof v === 'string' && v !== '') as string | undefined
+                          // Prefer the user's edited value; fall back to the
+                          // live site's rendered text so the row shows a real
+                          // preview for untouched slots.
+                          const fieldKeys = Object.keys(item)
+                          const preview =
+                            (fieldKeys
+                              .map(k => (typeof item[k] === 'string' && item[k] !== '') ? item[k] as string : siteValues[`${g.section}.${g.arrayKey}.${i}.${k}`])
+                              .find(v => typeof v === 'string' && v)) ?? ''
+                          const isImagePreview = preview.startsWith('http') || preview.startsWith('/') || preview.startsWith('data:')
                           return (
                             <div key={i} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md bg-white border border-gray-100">
                               <button
                                 type="button"
                                 onClick={() => {
-                                  const firstField = Object.keys(item)[0]
+                                  const firstField = fieldKeys[0]
                                   if (firstField) scrollToField(g.section, `${g.arrayKey}.${i}.${firstField}`)
                                 }}
-                                className="text-[11px] text-gray-700 truncate text-left min-w-0 flex-1 hover:text-blue-600"
+                                className="text-[11px] text-gray-700 truncate text-left min-w-0 flex-1 hover:text-blue-600 flex items-center gap-2"
                                 title="Scroll to this card"
                               >
-                                <span className="text-gray-400 mr-1">{g.itemLabel} {i + 1}</span>
-                                {firstNonEmpty && <span>· {firstNonEmpty.slice(0, 28)}</span>}
+                                {isImagePreview ? (
+                                  <img src={preview} alt="" className="w-6 h-6 rounded object-cover flex-shrink-0 bg-gray-100" />
+                                ) : null}
+                                <span className="truncate">
+                                  <span className="text-gray-400 mr-1">{g.itemLabel} {i + 1}</span>
+                                  {preview && !isImagePreview && <span>· {preview.slice(0, 48)}</span>}
+                                </span>
                               </button>
                               <button
                                 type="button"
@@ -1013,6 +1042,32 @@ export default function WebsiteEditorPage() {
           </p>
         </div>
       </aside>
+
+      {/* Drag handle — pull right to widen the sidebar, left to shrink it.
+          Persists width to localStorage across editor sessions. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize editor sidebar"
+        onPointerDown={(e) => {
+          e.preventDefault()
+          const startX  = e.clientX
+          const startW  = sidebarWidth
+          const onMove  = (ev: PointerEvent) => {
+            const next = Math.min(720, Math.max(220, startW + (ev.clientX - startX)))
+            setSidebarWidth(next)
+          }
+          const onUp = () => {
+            window.removeEventListener('pointermove', onMove)
+            window.removeEventListener('pointerup',   onUp)
+            try { localStorage.setItem('ngfEditorSidebarWidth', String(sidebarWidth)) } catch {}
+          }
+          window.addEventListener('pointermove', onMove)
+          window.addEventListener('pointerup',   onUp)
+        }}
+        className="hidden md:block w-1 flex-shrink-0 cursor-col-resize bg-gray-100 hover:bg-blue-300 transition-colors"
+        style={{ touchAction: 'none' }}
+      />
 
       {/* ── Preview pane ── */}
       <div className="flex-1 flex flex-col min-w-0 relative">
