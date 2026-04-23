@@ -295,6 +295,10 @@ export default function WebsiteEditorPage() {
   const iframeRef   = useRef<HTMLIFrameElement>(null)
   const saveTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const previewTimer= useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Snapshot of content[section][field] captured when a popover opens.
+  // Lets Cancel restore the true pre-edit state (which may be undefined/'',
+  // different from clickField.value which mirrors the DOM's SSR text).
+  const preEditValue = useRef<string | boolean | undefined>(undefined)
 
   const [content,          setContent]          = useState<ContentBlock>({})
   const [publishedContent, setPublishedContent] = useState<ContentBlock>({})
@@ -357,10 +361,12 @@ export default function WebsiteEditorPage() {
   const pushToPreview = useCallback((c: ContentBlock) => {
     if (previewTimer.current) clearTimeout(previewTimer.current)
     previewTimer.current = setTimeout(() => {
-      const filtered = stripEmpty(c)
-      iframeRef.current?.contentWindow?.postMessage({ type: 'contentUpdate', content: filtered }, '*')
+      // Send UNFILTERED content. The bridge treats '' as "restore to the
+      // site's original SSR text" (via its captured data-ngf-default), so
+      // reverts (cancel / X / revert-all) repaint cleanly without a reload.
+      iframeRef.current?.contentWindow?.postMessage({ type: 'contentUpdate', content: c }, '*')
     }, 120)
-  }, [stripEmpty])
+  }, [])
 
   const scheduleSave = useCallback((c: ContentBlock) => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -431,6 +437,41 @@ export default function WebsiteEditorPage() {
     if (iframeRef.current) iframeRef.current.src = iframeRef.current.src
   }, [])
 
+  // Ask the iframe to scroll a specific field into view and flash-highlight it.
+  const scrollToField = useCallback((sectionKey: string, fieldKey?: string) => {
+    const path = fieldKey ? `${sectionKey}.${fieldKey}` : sectionKey
+    iframeRef.current?.contentWindow?.postMessage({ type: 'scrollToField', path }, '*')
+  }, [])
+
+  // First field in a section that differs from the baseline — used as the
+  // scroll target when the user clicks a pending-change row.
+  const firstChangedFieldOf = useCallback((sectionKey: string): string | undefined => {
+    if (!schema) return undefined
+    const sec = schema.sections[sectionKey]
+    if (!sec) return undefined
+    const curr = (content[sectionKey] ?? {}) as Record<string, unknown>
+    const base = (baseContent[sectionKey] ?? {}) as Record<string, unknown>
+    for (const [fk, fieldDef] of Object.entries(sec.fields)) {
+      if (fieldDef.type === 'repeatable') {
+        const ca = Array.isArray(curr[fk]) ? curr[fk] as unknown[] : []
+        const ba = Array.isArray(base[fk]) ? base[fk] as unknown[] : []
+        const max = Math.max(ca.length, ba.length)
+        for (let i = 0; i < max; i++) {
+          const ci = (ca[i] ?? {}) as Record<string, unknown>
+          const bi = (ba[i] ?? {}) as Record<string, unknown>
+          for (const subKey of Object.keys({ ...ci, ...bi })) {
+            if (JSON.stringify(ci[subKey]) !== JSON.stringify(bi[subKey])) {
+              return `${fk}.${i}.${subKey}`
+            }
+          }
+        }
+      } else if (JSON.stringify(curr[fk]) !== JSON.stringify(base[fk])) {
+        return fk
+      }
+    }
+    return undefined
+  }, [schema, content, baseContent])
+
   const push = useCallback(async () => {
     setPushStatus('pushing')
     try {
@@ -479,12 +520,10 @@ export default function WebsiteEditorPage() {
       if (e.data?.type === 'ngfReady') {
         iframeRef.current?.contentWindow?.postMessage({ type: 'setEditMode', enabled: true }, '*')
         setTimeout(() => {
-          // Filter empties here too so the initial contentUpdate doesn't
-          // wipe out the site's server-rendered text with '' (which the
-          // bridge would paint via el.textContent = '', leaving the element
-          // empty and surfacing the :empty::before data-ngf-label placeholder).
-          const filtered = stripEmpty(content)
-          iframeRef.current?.contentWindow?.postMessage({ type: 'contentUpdate', content: filtered }, '*')
+          // Send unfiltered — the bridge captures each field's SSR default on
+          // load and treats '' as "restore default", so empties don't wipe
+          // the server-rendered text and edited values still paint through.
+          iframeRef.current?.contentWindow?.postMessage({ type: 'contentUpdate', content }, '*')
         }, 50)
       }
 
@@ -497,6 +536,19 @@ export default function WebsiteEditorPage() {
         const fieldType  = resolveFieldType(schema, section, field)
         const iframeRect = iframeRef.current?.getBoundingClientRect() ?? new DOMRect()
         const pos        = computePopoverPosition(iframeRect, elementRect)
+
+        // Snapshot the TRUE pre-edit value from content state (may be '' or
+        // undefined for an unpopulated field). clickField.value below is the
+        // DOM text which differs when the site is showing a hardcoded fallback.
+        const sectionData = content[section] as Record<string, unknown> | undefined
+        if (field.includes('.')) {
+          const [arrayKey, idxStr, subKey] = field.split('.')
+          const arr = Array.isArray(sectionData?.[arrayKey]) ? sectionData[arrayKey] as unknown[] : []
+          const row = arr[parseInt(idxStr)] as Record<string, unknown> | undefined
+          preEditValue.current = row?.[subKey] as string | boolean | undefined
+        } else {
+          preEditValue.current = sectionData?.[field] as string | boolean | undefined
+        }
 
         setClickField({ section, field, value: currentValue, label: humanize(fieldPart), fieldType, elementRect })
         setPopoverPos(pos)
@@ -622,20 +674,28 @@ export default function WebsiteEditorPage() {
             ) : (
               <div className="space-y-1">
                 {changedSections.map(({ sectionKey, label, fieldCount }) => (
-                  <div key={sectionKey}
-                    className="flex items-center justify-between px-2.5 py-2 rounded-lg bg-amber-50 border border-amber-100 group">
+                  <button
+                    key={sectionKey}
+                    type="button"
+                    onClick={() => scrollToField(sectionKey, firstChangedFieldOf(sectionKey))}
+                    title="Scroll to this change"
+                    className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg bg-amber-50 border border-amber-100 hover:bg-amber-100 group cursor-pointer text-left"
+                  >
                     <div className="min-w-0">
                       <span className="text-xs font-medium text-amber-800">{label}</span>
                       <span className="text-xs text-amber-400 ml-1.5">{fieldCount} {fieldCount === 1 ? 'field' : 'fields'}</span>
                     </div>
-                    <button
-                      onClick={() => revertSection(sectionKey)}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); revertSection(sectionKey) }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); revertSection(sectionKey) } }}
                       title="Discard changes"
-                      className="ml-2 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full text-amber-400 hover:bg-red-100 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                      className="ml-2 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full text-amber-400 hover:bg-red-100 hover:text-red-500 opacity-60 group-hover:opacity-100 transition-all"
                     >
                       ×
-                    </button>
-                  </div>
+                    </span>
+                  </button>
                 ))}
               </div>
             )}
@@ -721,7 +781,12 @@ export default function WebsiteEditorPage() {
           onChange={(v) => updateField(clickField.section, clickField.field, v)}
           onDone={() => setClickField(null)}
           onCancel={() => {
-            // Revert to original value on cancel
+            // Restore the pre-edit value captured when the popover opened.
+            // undefined means the field had no stored value — send '' so the
+            // bridge repaints the server-rendered fallback.
+            const restore = preEditValue.current
+            const v = typeof restore === 'string' || typeof restore === 'boolean' ? restore : ''
+            updateField(clickField.section, clickField.field, v)
             setClickField(null)
           }}
         />
@@ -755,18 +820,26 @@ export default function WebsiteEditorPage() {
             ) : (
               <div className="space-y-2">
                 {changedSections.map(({ sectionKey, label, fieldCount }) => (
-                  <div key={sectionKey} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-100">
+                  <button
+                    key={sectionKey}
+                    type="button"
+                    onClick={() => { scrollToField(sectionKey, firstChangedFieldOf(sectionKey)); setChangesOpen(false) }}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-100 hover:bg-amber-100 text-left"
+                  >
                     <div className="min-w-0">
                       <span className="text-sm font-medium text-amber-800">{label}</span>
                       <span className="text-xs text-amber-400 ml-1.5">{fieldCount} {fieldCount === 1 ? 'field' : 'fields'}</span>
                     </div>
-                    <button
-                      onClick={() => revertSection(sectionKey)}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); revertSection(sectionKey) }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); revertSection(sectionKey) } }}
                       className="ml-3 flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-white border border-amber-200 text-amber-400 hover:bg-red-50 hover:border-red-200 hover:text-red-500 transition-colors text-base"
                     >
                       ×
-                    </button>
-                  </div>
+                    </span>
+                  </button>
                 ))}
               </div>
             )}
