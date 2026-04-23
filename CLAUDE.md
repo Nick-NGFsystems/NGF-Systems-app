@@ -724,6 +724,22 @@ WEBSITE_REVALIDATION_SECRET         ← optional; pinged on client site after pu
 
 ---
 
+## Known Gaps / Integration Checklist
+
+Things that are built but **not verified end-to-end**, or built for one client and not yet propagated. Before starting a multi-hour integration session, skim this list — it's faster than auditing from scratch. Delete an entry the moment it's verified.
+
+| Area | Status | Notes |
+|---|---|---|
+| Vercel Blob token | ⚠️ Not provisioned in prod | `BLOB_READ_WRITE_TOKEN` not set on `ngf-systems-app` project. Image uploads from the editor fail with "Blob storage is not configured" until Storage → Create Blob → Connect Project is run once. |
+| WrenchTime published content | ⚠️ Cross-contaminated | Public content API for `wrench-time-cycles-mockup.vercel.app` returns a mix of NorthCove + WT fields (legacy from URL-switching before the snapshot-and-clear fix landed). Fix: Admin portal → ResetWebsiteContentButton on the affected client. |
+| `<select><option>` editing | ❌ Not supported | Native browser UI; the bridge can't intercept option clicks. Contact form dropdowns on NorthCove and elsewhere are visually labeled but the option values aren't editable from the portal. |
+| Client-site starter template | ⚠️ Out of sync | `ngf-client-starter` repo still has the pre-revert-UX bridge. New sites should copy `NgfEditBridge.tsx` from NorthCove or WrenchTime until the starter is refreshed. |
+| Prisma migrations | ⚠️ Run at deploy time only | The Vercel build runs `prisma migrate deploy`, so migrations only land on successful deploy. If writing a migration in a headless session, the SQL is shipped-but-unverified until the next deploy or a local `./node_modules/.bin/prisma migrate dev`. Call this out in the PR message. |
+
+**When finishing a session, add an entry here for anything you committed but couldn't verify live.** This is the single most useful line a session can leave for the next one.
+
+---
+
 ## Absolute Rules
 
 1. **TypeScript only.** Never `.js` files. Every file is `.ts` or `.tsx`.
