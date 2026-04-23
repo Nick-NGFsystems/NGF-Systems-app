@@ -479,7 +479,12 @@ export default function WebsiteEditorPage() {
       if (e.data?.type === 'ngfReady') {
         iframeRef.current?.contentWindow?.postMessage({ type: 'setEditMode', enabled: true }, '*')
         setTimeout(() => {
-          iframeRef.current?.contentWindow?.postMessage({ type: 'contentUpdate', content }, '*')
+          // Filter empties here too so the initial contentUpdate doesn't
+          // wipe out the site's server-rendered text with '' (which the
+          // bridge would paint via el.textContent = '', leaving the element
+          // empty and surfacing the :empty::before data-ngf-label placeholder).
+          const filtered = stripEmpty(content)
+          iframeRef.current?.contentWindow?.postMessage({ type: 'contentUpdate', content: filtered }, '*')
         }, 50)
       }
 
