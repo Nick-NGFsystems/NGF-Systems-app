@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 
+// Always execute dynamically; never cache the route's response or its outbound fetches.
+export const dynamic  = 'force-dynamic'
+export const fetchCache = 'force-no-store'
+export const revalidate = 0
+
 async function validateAdmin() {
   const { sessionClaims } = await auth()
   const role = (sessionClaims?.metadata as { role?: string } | undefined)?.role
@@ -25,17 +30,28 @@ export async function POST(request: NextRequest) {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 7000)
 
+    // Append a cachebust query param so Vercel's edge network (and any upstream
+    // caches) serve us fresh HTML rather than a stale static prerender.
+    const separator    = targetUrl.includes('?') ? '&' : '?'
+    const bustedUrl    = `${targetUrl}${separator}__ngf_verify=${Date.now()}`
+
     let html = ''
     try {
-      const response = await fetch(targetUrl, {
-        signal: controller.signal,
-        headers: { 'User-Agent': 'NGFsystems-Verifier/1.0' },
+      const response = await fetch(bustedUrl, {
+        signal:  controller.signal,
+        cache:   'no-store',
+        headers: {
+          'User-Agent':     'NGFsystems-Verifier/1.0',
+          'Cache-Control':  'no-cache, no-store, max-age=0',
+          'Pragma':         'no-cache',
+        },
       })
       clearTimeout(timeout)
       if (!response.ok) {
         return NextResponse.json({
           compatible: false,
           error: `Site returned HTTP ${response.status} — check the URL`,
+          debug: { fetched_url: bustedUrl, status: response.status },
         })
       }
       html = await response.text()
