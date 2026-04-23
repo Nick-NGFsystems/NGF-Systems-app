@@ -173,6 +173,7 @@ function computePopoverPosition(
 function SectionsAccordion({
   schema, content, siteValues, openSections, setOpenSections,
   openFieldEditor, scrollToField, addGroupItem, removeGroupItem, moveGroupItem,
+  showAllFields, setShowAllFields,
 }: {
   schema: TemplateSchema
   content: ContentBlock
@@ -184,6 +185,8 @@ function SectionsAccordion({
   addGroupItem: (sectionKey: string, arrayKey: string) => void
   removeGroupItem: (sectionKey: string, arrayKey: string, index: number) => void
   moveGroupItem: (sectionKey: string, arrayKey: string, from: number, to: number) => void
+  showAllFields: boolean
+  setShowAllFields: (v: boolean) => void
 }) {
   const preview = (sectionKey: string, fieldPath: string): string => {
     const sec = content[sectionKey] as Record<string, unknown> | undefined
@@ -222,16 +225,56 @@ function SectionsAccordion({
   const sectionHasContent = (sectionKey: string, section: SectionSchema): boolean =>
     Object.entries(section.fields).some(([fk, f]) => fieldHasValue(sectionKey, fk, f))
 
+  const sectionHasRepeatable = (section: SectionSchema): boolean =>
+    Object.values(section.fields).some(f => f.type === 'repeatable')
+
   return (
     <div>
-      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Sections</p>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+          {showAllFields ? 'Sections' : 'Manage Sections'}
+        </p>
+        {/* Toggle: default is the compact "Manage Sections" view which only
+            shows repeatable groups (add/remove/reorder cards — things you
+            can't do from clicking the page). Flip to "Show all fields" to
+            also edit scalar text/image fields from the sidebar. */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showAllFields}
+          onClick={() => setShowAllFields(!showAllFields)}
+          className="flex items-center gap-1.5 text-[10px] font-medium text-gray-500 hover:text-gray-900"
+          title={showAllFields ? 'Hide scalar fields (click on the page to edit text instead)' : 'Also edit every text/image field from the sidebar'}
+        >
+          <span className={`inline-flex h-4 w-7 items-center rounded-full transition-colors ${showAllFields ? 'bg-blue-600' : 'bg-gray-300'}`}>
+            <span className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${showAllFields ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+          </span>
+          <span>Show all fields</span>
+        </button>
+      </div>
+
+      {!showAllFields && (
+        <p className="mb-3 text-[10px] text-gray-400 leading-relaxed">
+          Click text on the preview to edit it. Use this panel to add, remove, or reorder cards.
+        </p>
+      )}
+
       <div className="space-y-2">
         {Object.entries(schema.sections)
-          .filter(([sectionKey, section]) => sectionHasContent(sectionKey, section))
+          // Default view hides text-only sections; "Show all" unhides them.
+          .filter(([sectionKey, section]) =>
+            sectionHasContent(sectionKey, section) &&
+            (showAllFields || sectionHasRepeatable(section))
+          )
           .map(([sectionKey, section]) => {
-          const isOpen = openSections[sectionKey] ?? false  // default collapsed
+          // In compact (Manage Sections) mode, auto-open every section so
+          // the card lists are immediately visible — there's nothing else
+          // to show, so no point keeping them collapsed by default.
+          const isOpen = showAllFields
+            ? (openSections[sectionKey] ?? false)
+            : (openSections[sectionKey] ?? true)
           const toggle = () =>
-            setOpenSections(s => ({ ...s, [sectionKey]: !(s[sectionKey] ?? false) }))
+            setOpenSections(s => ({ ...s, [sectionKey]: !isOpen }))
 
           return (
             <div key={sectionKey} className="rounded-lg border border-gray-100 bg-white overflow-hidden">
@@ -252,7 +295,13 @@ function SectionsAccordion({
               {isOpen && (
                 <div className="p-2 space-y-2">
                   {Object.entries(section.fields)
-                    .filter(([fk, f]) => fieldHasValue(sectionKey, fk, f))
+                    .filter(([fk, f]) =>
+                      fieldHasValue(sectionKey, fk, f) &&
+                      // In compact mode (showAllFields=false), only show
+                      // repeatable groups — scalar fields are edited on the
+                      // page via click-to-edit.
+                      (showAllFields || f.type === 'repeatable')
+                    )
                     .map(([fieldKey, field]) => {
                     if (field.type === 'repeatable') {
                       const items = Array.isArray((content[sectionKey] as Record<string, unknown>)?.[fieldKey])
@@ -633,6 +682,18 @@ export default function WebsiteEditorPage() {
   })
   // Which section accordions are expanded. Starts with all sections expanded.
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({})
+  // Whether the sidebar shows every scalar field (full form mode) or just
+  // the repeatable groups (compact "Manage sections" mode, default).
+  // Persisted so the client's preference survives reloads.
+  const [showAllFields, setShowAllFields] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem('ngfEditorShowAllFields') === '1'
+  })
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('ngfEditorShowAllFields', showAllFields ? '1' : '0')
+    } catch {}
+  }, [showAllFields])
   const [schema,           setSchema]           = useState<TemplateSchema | null>(null)
   const [saveStatus,       setSaveStatus]       = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [pushStatus,       setPushStatus]       = useState<'idle' | 'pushing' | 'published' | 'error'>('idle')
@@ -1196,7 +1257,8 @@ export default function WebsiteEditorPage() {
             )}
           </div>
 
-          {/* Sections — full accordion view of every field on the site */}
+          {/* Sections — defaults to compact "Manage sections" (only repeatable
+              groups). Toggle at the top flips to show every scalar field too. */}
           {schema && (
             <SectionsAccordion
               schema={schema}
@@ -1209,6 +1271,8 @@ export default function WebsiteEditorPage() {
               addGroupItem={addGroupItem}
               removeGroupItem={removeGroupItem}
               moveGroupItem={moveGroupItem}
+              showAllFields={showAllFields}
+              setShowAllFields={setShowAllFields}
             />
           )}
 
