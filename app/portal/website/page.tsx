@@ -682,6 +682,8 @@ export default function WebsiteEditorPage() {
   })
   // Which section accordions are expanded. Starts with all sections expanded.
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({})
+  // Which pending-change rows are expanded to show the per-field diff.
+  const [expandedPending, setExpandedPending] = useState<Record<string, boolean>>({})
   // Whether the sidebar shows every scalar field (full form mode) or just
   // the repeatable groups (compact "Manage sections" mode, default).
   // Persisted so the client's preference survives reloads.
@@ -1024,6 +1026,123 @@ export default function WebsiteEditorPage() {
     return undefined
   }, [schema, content, baseContent])
 
+  // Full list of every changed field within a section, with before/after
+  // values and metadata the diff UI needs (label, type, path). Returned in
+  // source order from the schema.
+  interface PendingFieldDiff {
+    path:     string            // e.g. "headline" or "items.2.title"
+    label:    string
+    type:     FieldType
+    before:   string            // stringified for easy diff display
+    after:    string
+    added?:   boolean           // true when a repeatable item is newly added
+    removed?: boolean           // true when a repeatable item was removed
+    itemLabel?: string          // "Service", "Review" etc. (for grouped items)
+    itemIndex?: number
+  }
+  const changedFieldsOfSection = useCallback((sectionKey: string): PendingFieldDiff[] => {
+    if (!schema) return []
+    const sec = schema.sections[sectionKey]
+    if (!sec) return []
+    const curr = (content[sectionKey] ?? {}) as Record<string, unknown>
+    const base = (baseContent[sectionKey] ?? {}) as Record<string, unknown>
+    const toStr = (v: unknown): string => {
+      if (v === undefined || v === null) return ''
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return String(v)
+      return JSON.stringify(v)
+    }
+    const diffs: PendingFieldDiff[] = []
+    for (const [fk, fieldDef] of Object.entries(sec.fields)) {
+      if (fieldDef.type === 'repeatable') {
+        const ca = Array.isArray(curr[fk]) ? curr[fk] as unknown[] : []
+        const ba = Array.isArray(base[fk]) ? base[fk] as unknown[] : []
+        const max = Math.max(ca.length, ba.length)
+        for (let i = 0; i < max; i++) {
+          const added   = i >= ba.length
+          const removed = i >= ca.length
+          if (added) {
+            diffs.push({
+              path: `${fk}.${i}`, label: fieldDef.itemLabel, type: 'text' as FieldType,
+              before: '', after: `New ${fieldDef.itemLabel.toLowerCase()}`,
+              added: true, itemLabel: fieldDef.itemLabel, itemIndex: i,
+            })
+            continue
+          }
+          if (removed) {
+            diffs.push({
+              path: `${fk}.${i}`, label: fieldDef.itemLabel, type: 'text' as FieldType,
+              before: `${fieldDef.itemLabel} ${i + 1}`, after: '',
+              removed: true, itemLabel: fieldDef.itemLabel, itemIndex: i,
+            })
+            continue
+          }
+          const ci = (ca[i] ?? {}) as Record<string, unknown>
+          const bi = (ba[i] ?? {}) as Record<string, unknown>
+          for (const [subKey, subField] of Object.entries(fieldDef.fields)) {
+            const bStr = toStr(bi[subKey])
+            const cStr = toStr(ci[subKey])
+            if (bStr !== cStr) {
+              diffs.push({
+                path: `${fk}.${i}.${subKey}`,
+                label: subField.label,
+                type: subField.type as FieldType,
+                before: bStr,
+                after:  cStr,
+                itemLabel: fieldDef.itemLabel,
+                itemIndex: i,
+              })
+            }
+          }
+        }
+      } else {
+        const bStr = toStr(base[fk])
+        const cStr = toStr(curr[fk])
+        if (bStr !== cStr) {
+          diffs.push({
+            path:  fk,
+            label: fieldDef.label,
+            type:  fieldDef.type as FieldType,
+            before: bStr,
+            after:  cStr,
+          })
+        }
+      }
+    }
+    return diffs
+  }, [schema, content, baseContent])
+
+  // Revert a single field back to its baseline value. Used when clicking the
+  // × on a specific row inside the expanded pending-change diff.
+  const revertField = useCallback((sectionKey: string, fieldPath: string) => {
+    setContent(prev => {
+      const section = { ...(prev[sectionKey] as Record<string, unknown> ?? {}) }
+      const base    = (baseContent[sectionKey] as Record<string, unknown>) ?? {}
+      if (fieldPath.includes('.')) {
+        const [arrayKey, idxStr, subKey] = fieldPath.split('.')
+        const currArr = Array.isArray(section[arrayKey]) ? [...section[arrayKey] as unknown[]] : []
+        const baseArr = Array.isArray(base[arrayKey]) ? base[arrayKey] as unknown[] : []
+        const idx = parseInt(idxStr, 10)
+        if (subKey === undefined) {
+          // Whole item added/removed — revert by matching baseline length.
+          const next = { ...prev, [sectionKey]: { ...section, [arrayKey]: [...baseArr] } }
+          pushToPreview(next)
+          scheduleSave(next)
+          return next
+        }
+        const currRow = (currArr[idx] ?? {}) as Record<string, unknown>
+        const baseRow = (baseArr[idx] ?? {}) as Record<string, unknown>
+        currArr[idx] = { ...currRow, [subKey]: baseRow[subKey] ?? '' }
+        section[arrayKey] = currArr
+      } else {
+        section[fieldPath] = (base as Record<string, unknown>)[fieldPath] ?? ''
+      }
+      const next = { ...prev, [sectionKey]: section }
+      pushToPreview(next)
+      scheduleSave(next)
+      return next
+    })
+  }, [baseContent, pushToPreview, scheduleSave])
+
   const push = useCallback(async () => {
     setPushStatus('pushing')
     try {
@@ -1229,30 +1348,94 @@ export default function WebsiteEditorPage() {
               </p>
             ) : (
               <div className="space-y-1">
-                {changedSections.map(({ sectionKey, label, fieldCount }) => (
-                  <button
-                    key={sectionKey}
-                    type="button"
-                    onClick={() => scrollToField(sectionKey, firstChangedFieldOf(sectionKey))}
-                    title="Scroll to this change"
-                    className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg bg-amber-50 border border-amber-100 hover:bg-amber-100 group cursor-pointer text-left"
-                  >
-                    <div className="min-w-0">
-                      <span className="text-xs font-medium text-amber-800">{label}</span>
-                      <span className="text-xs text-amber-400 ml-1.5">{fieldCount} {fieldCount === 1 ? 'field' : 'fields'}</span>
-                    </div>
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      onClick={(e) => { e.stopPropagation(); revertSection(sectionKey) }}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); revertSection(sectionKey) } }}
-                      title="Discard changes"
-                      className="ml-2 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full text-amber-400 hover:bg-red-100 hover:text-red-500 opacity-60 group-hover:opacity-100 transition-all"
+                {changedSections.map(({ sectionKey, label, fieldCount }) => {
+                  const isExpanded = expandedPending[sectionKey] ?? false
+                  const diffs = isExpanded ? changedFieldsOfSection(sectionKey) : []
+                  return (
+                    <div
+                      key={sectionKey}
+                      className="rounded-lg bg-amber-50 border border-amber-100 overflow-hidden"
                     >
-                      ×
-                    </span>
-                  </button>
-                ))}
+                      <div className="flex items-center justify-between px-2.5 py-2 hover:bg-amber-100 group">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedPending(s => ({ ...s, [sectionKey]: !isExpanded }))}
+                          className="flex items-center gap-1.5 min-w-0 flex-1 text-left"
+                          title={isExpanded ? 'Hide changes' : 'Show what changed'}
+                        >
+                          <span className={`text-amber-500 text-[11px] transition-transform ${isExpanded ? 'rotate-90' : ''}`}>›</span>
+                          <span className="text-xs font-medium text-amber-800 truncate">{label}</span>
+                          <span className="text-xs text-amber-400 flex-shrink-0">{fieldCount} {fieldCount === 1 ? 'change' : 'changes'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            scrollToField(sectionKey, firstChangedFieldOf(sectionKey))
+                          }}
+                          title="Scroll to this change on the page"
+                          className="ml-1 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-amber-600 hover:bg-amber-200 opacity-60 group-hover:opacity-100"
+                        >↗</button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); revertSection(sectionKey) }}
+                          title="Discard all changes in this section"
+                          className="ml-0.5 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full text-amber-400 hover:bg-red-100 hover:text-red-500 opacity-60 group-hover:opacity-100"
+                        >×</button>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="border-t border-amber-200 bg-white/60 p-1.5 space-y-1">
+                          {diffs.length === 0 ? (
+                            <p className="text-[11px] text-amber-700/70 px-1.5 py-1">No field-level diffs — refresh.</p>
+                          ) : diffs.map(d => {
+                            const isImg = d.type === 'image'
+                            const pretty = (v: string) => v === '' ? '(empty)' : v
+                            return (
+                              <div key={d.path} className="rounded border border-amber-100 bg-white p-1.5">
+                                <div className="flex items-center justify-between gap-1 mb-1">
+                                  <span className="text-[10px] font-semibold text-amber-800 uppercase tracking-wide truncate">
+                                    {d.itemLabel ? `${d.itemLabel} ${(d.itemIndex ?? 0) + 1} · ` : ''}{d.label}
+                                    {d.added   && <span className="ml-1 rounded bg-green-100 px-1 text-[9px] text-green-700">added</span>}
+                                    {d.removed && <span className="ml-1 rounded bg-red-100 px-1 text-[9px] text-red-700">removed</span>}
+                                  </span>
+                                  <div className="flex items-center gap-0.5 flex-shrink-0">
+                                    {!d.added && !d.removed && (
+                                      <button
+                                        type="button"
+                                        onClick={() => openFieldEditor(sectionKey, d.path, d.after, d.label, d.type)}
+                                        title="Edit this field"
+                                        className="w-4 h-4 flex items-center justify-center rounded text-amber-600 hover:bg-amber-100 text-[10px]"
+                                      >✎</button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => revertField(sectionKey, d.path)}
+                                      title="Revert this field"
+                                      className="w-4 h-4 flex items-center justify-center rounded text-amber-400 hover:bg-red-100 hover:text-red-500 text-[11px]"
+                                    >×</button>
+                                  </div>
+                                </div>
+                                {isImg ? (
+                                  <div className="flex items-center gap-1.5">
+                                    {d.before && <img src={d.before} alt="" className="w-8 h-8 rounded object-cover bg-gray-100" />}
+                                    <span className="text-[11px] text-gray-400">→</span>
+                                    {d.after ? <img src={d.after} alt="" className="w-8 h-8 rounded object-cover bg-gray-100" /> : <span className="text-[10px] text-gray-400">(cleared)</span>}
+                                  </div>
+                                ) : (
+                                  <div className="text-[11px] leading-snug">
+                                    <div className="text-gray-400 line-through truncate">{pretty(d.before)}</div>
+                                    <div className="text-gray-800 truncate">{pretty(d.after)}</div>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
