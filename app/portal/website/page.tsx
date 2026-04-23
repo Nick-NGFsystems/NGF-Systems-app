@@ -403,20 +403,42 @@ function ImageField({
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+
+    // Front-line validation so we never send a file the server will reject.
+    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']
+    if (!ALLOWED.includes(file.type)) {
+      setUploadError(`Only JPG, PNG, WebP, GIF, or SVG images are supported (got ${file.type || 'unknown'}).`)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError(`File is ${(file.size / 1024 / 1024).toFixed(1)} MB. Max is 5 MB.`)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+
     setUploading(true)
     setUploadError(null)
     try {
       const formData = new FormData()
       formData.append('file', file)
       const res = await fetch('/api/portal/upload', { method: 'POST', body: formData })
-      const data = (await res.json()) as { success?: boolean; data?: { url?: string }; error?: string }
+
+      // Parse the body as text first so we can surface non-JSON error pages
+      // (e.g. Vercel's 413 Request Too Large, or a 502 from Blob storage).
+      const bodyText = await res.text()
+      let data: { success?: boolean; data?: { url?: string }; error?: string } = {}
+      try { data = bodyText ? JSON.parse(bodyText) : {} } catch {
+        setUploadError(`Upload failed (HTTP ${res.status}): ${bodyText.slice(0, 120) || 'no response body'}`)
+        return
+      }
       if (!res.ok || !data.success || !data.data?.url) {
-        setUploadError(data.error ?? 'Upload failed')
+        setUploadError(data.error ?? `Upload failed (HTTP ${res.status})`)
         return
       }
       onChange(data.data.url)
-    } catch {
-      setUploadError('Upload failed')
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed — network error')
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
