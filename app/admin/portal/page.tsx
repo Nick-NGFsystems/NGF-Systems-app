@@ -22,12 +22,72 @@ export default async function AdminPortalPage() {
     clients.map((client) => client.clerk_user_id).filter((id): id is string => Boolean(id))
   )
 
+  // Duplicate-domain audit — multiple clients with the same site_url cause
+  // cross-contamination in the content API. Show a banner so they can be fixed.
+  const allConfigs = await db.clientConfig.findMany({
+    where:  { site_url: { not: null } },
+    select: { client_id: true, site_url: true },
+  })
+  const normalize = (s: string) =>
+    s.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '').toLowerCase()
+  const byDomain = new Map<string, { client_id: string; site_url: string }[]>()
+  for (const c of allConfigs) {
+    if (!c.site_url) continue
+    const key = normalize(c.site_url)
+    const arr = byDomain.get(key) ?? []
+    arr.push({ client_id: c.client_id, site_url: c.site_url })
+    byDomain.set(key, arr)
+  }
+  const duplicates = Array.from(byDomain.entries()).filter(([, v]) => v.length > 1)
+  const clientsById = new Map(clients.map(c => [c.id, c]))
+
   return (
     <section className="space-y-8">
       <header>
         <h1 className="font-sans text-3xl font-semibold tracking-tight text-slate-900">Portal</h1>
         <p className="mt-1 text-sm text-gray-500">Manage portal access, content fields, and change requests by client.</p>
       </header>
+
+      {duplicates.length > 0 && (
+        <section className="rounded-xl border border-red-200 bg-red-50/70 p-5">
+          <h2 className="text-sm font-semibold text-red-900">
+            ⚠ Duplicate site_url detected — fix before clients can rely on their content
+          </h2>
+          <p className="mt-1 text-xs text-red-800/80 leading-relaxed">
+            Each domain can only map to one client. When two clients share a domain, the public content API
+            returns whichever one has the most recently published content — which means edits from one client
+            can appear on another's site. Clear the duplicate site_url on the client(s) that shouldn't own the
+            domain below.
+          </p>
+          <div className="mt-3 space-y-3">
+            {duplicates.map(([domain, rows]) => (
+              <div key={domain} className="rounded-lg border border-red-200 bg-white p-3">
+                <p className="text-xs font-semibold text-red-900">{domain}</p>
+                <ul className="mt-1.5 space-y-1">
+                  {rows.map(r => {
+                    const c = clientsById.get(r.client_id)
+                    return (
+                      <li key={r.client_id} className="flex items-center justify-between gap-3 text-xs text-gray-700">
+                        <span className="truncate">
+                          {c?.name ?? 'Unknown client'}
+                          <span className="ml-1 text-gray-400">({r.client_id.slice(0, 10)}…)</span>
+                          <span className="ml-1 text-gray-400">→ {r.site_url}</span>
+                        </span>
+                        <Link
+                          href={`/admin/portal/${r.client_id}`}
+                          className="inline-flex h-7 items-center rounded-md border border-red-300 bg-white px-2.5 text-[11px] font-medium text-red-700 hover:bg-red-100"
+                        >
+                          Open
+                        </Link>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {clients.length === 0 ? (
         <section className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">

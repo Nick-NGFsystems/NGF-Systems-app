@@ -90,6 +90,8 @@ export async function PATCH(request: Request, context: RouteContext) {
       body.site_url !== undefined ? (body.site_url?.trim() || null) : undefined
 
     // If site_url is being set to a non-null value, verify it's NGF-compatible
+    // AND that no OTHER client already owns this domain — duplicates lead to
+    // cross-contamination via the /api/public/content domain resolver.
     if (newSiteUrl) {
       const existing = await db.clientConfig.findUnique({
         where: { client_id: clientId },
@@ -97,6 +99,32 @@ export async function PATCH(request: Request, context: RouteContext) {
       })
       // Only re-verify if the URL is actually changing
       if (existing?.site_url !== newSiteUrl) {
+        // Normalize for comparison (protocol, www, trailing slash, case)
+        const norm = (s: string) =>
+          s.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '').toLowerCase()
+        const newNorm = norm(newSiteUrl)
+
+        // Reject if another client already has this domain. Normalized compare
+        // in JS since Prisma can't express LOWER(TRIM(...)) matches cleanly.
+        const others = await db.clientConfig.findMany({
+          where: {
+            client_id: { not: clientId },
+            site_url:  { not: null },
+          },
+          select: { client_id: true, site_url: true },
+        })
+        const conflictRow = others.find(o => o.site_url && norm(o.site_url) === newNorm)
+        if (conflictRow) {
+          return NextResponse.json(
+            {
+              success: false,
+              error:   `Another client already owns this domain (${conflictRow.site_url}). Each domain can only belong to one client — remove it from the other client first, or use a different domain.`,
+              conflict: { other_client_id: conflictRow.client_id, site_url: conflictRow.site_url },
+            },
+            { status: 409 }
+          )
+        }
+
         const verification = await verifyNgfSite(newSiteUrl)
         if (!verification.ok) {
           return NextResponse.json(

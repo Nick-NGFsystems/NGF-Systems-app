@@ -83,11 +83,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ content: {} }, { headers: CORS })
     }
 
-    // When multiple clients share the same domain (e.g. admin record + portal user),
-    // find the one that actually has published websiteContent.
+    // Ideally there is exactly one match — the config PATCH handler now rejects
+    // duplicate site_url entries. For any legacy duplicates still in the DB we
+    // pick the most-recently-PUBLISHED record so the answer is deterministic
+    // and the newer client's content wins over a stale sibling row. Also log
+    // so the admin can see duplicates and clean them up.
+    if (matchingClients.length > 1) {
+      console.warn(
+        `[public/content] duplicate site_url "${normalized}" across clients:`,
+        matchingClients.map((c) => c.id),
+      )
+    }
+
     const matchingIds = matchingClients.map((c) => c.id)
     const websiteContent = await db.websiteContent.findFirst({
-      where: { client_id: { in: matchingIds } },
+      where:   { client_id: { in: matchingIds } },
+      orderBy: [
+        { published_at: { sort: 'desc', nulls: 'last' } },
+        { updated:      'desc' },
+      ],
     })
 
     if (!websiteContent) {
