@@ -164,6 +164,201 @@ function computePopoverPosition(
   return { top, left, isSheet: false }
 }
 
+// ── Sections Accordion ────────────────────────────────────────────────────────
+// One collapsible row per scraped section. Shows every scalar field as a
+// labeled tile with its current value previewed, and every repeatable group
+// as a nested list of items with up/down/× controls + an "Add" button. The
+// whole point: the client sees what's on each page without hunting.
+
+function SectionsAccordion({
+  schema, content, siteValues, openSections, setOpenSections,
+  openFieldEditor, scrollToField, addGroupItem, removeGroupItem, moveGroupItem,
+}: {
+  schema: TemplateSchema
+  content: ContentBlock
+  siteValues: Record<string, string>
+  openSections: Record<string, boolean>
+  setOpenSections: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
+  openFieldEditor: (sectionKey: string, fieldPath: string, currentValue: string, label: string, fieldType: FieldType) => void
+  scrollToField: (sectionKey: string, fieldKey?: string) => void
+  addGroupItem: (sectionKey: string, arrayKey: string) => void
+  removeGroupItem: (sectionKey: string, arrayKey: string, index: number) => void
+  moveGroupItem: (sectionKey: string, arrayKey: string, from: number, to: number) => void
+}) {
+  const preview = (sectionKey: string, fieldPath: string): string => {
+    const sec = content[sectionKey] as Record<string, unknown> | undefined
+    if (fieldPath.includes('.')) {
+      const [arrayKey, idxStr, subKey] = fieldPath.split('.')
+      const arr = Array.isArray(sec?.[arrayKey]) ? sec[arrayKey] as unknown[] : []
+      const row = arr[parseInt(idxStr)] as Record<string, unknown> | undefined
+      const v = row?.[subKey]
+      if (typeof v === 'string' && v !== '') return v
+    } else {
+      const v = sec?.[fieldPath]
+      if (typeof v === 'string' && v !== '') return v
+    }
+    return siteValues[`${sectionKey}.${fieldPath}`] ?? ''
+  }
+
+  const isImageLike = (v: string) =>
+    v.startsWith('http') || v.startsWith('/') || v.startsWith('data:')
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Sections</p>
+      <div className="space-y-2">
+        {Object.entries(schema.sections).map(([sectionKey, section]) => {
+          const isOpen = openSections[sectionKey] ?? true  // default open
+          const toggle = () =>
+            setOpenSections(s => ({ ...s, [sectionKey]: !(s[sectionKey] ?? true) }))
+
+          return (
+            <div key={sectionKey} className="rounded-lg border border-gray-100 bg-white overflow-hidden">
+              <button
+                type="button"
+                onClick={toggle}
+                className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 hover:bg-gray-100 transition-colors"
+              >
+                <span className="text-xs font-semibold text-gray-800 truncate">{section.label}</span>
+                <span className={`text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}>›</span>
+              </button>
+
+              {isOpen && (
+                <div className="p-2 space-y-2">
+                  {Object.entries(section.fields).map(([fieldKey, field]) => {
+                    if (field.type === 'repeatable') {
+                      const items = Array.isArray((content[sectionKey] as Record<string, unknown>)?.[fieldKey])
+                        ? ((content[sectionKey] as Record<string, unknown>)[fieldKey] as Record<string, string>[])
+                        : []
+                      const canAdd    = items.length < (field.maxItems ?? 99)
+                      const canRemove = items.length > (field.minItems ?? 0)
+                      return (
+                        <div key={fieldKey} className="rounded-md border border-gray-100 bg-gray-50/50 p-2">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide">{field.label}</span>
+                            <span className="text-[10px] text-gray-400">{items.length}/{field.maxItems ?? 99}</span>
+                          </div>
+                          <div className="space-y-1.5">
+                            {items.map((item, i) => {
+                              const subFields = Object.entries(field.fields) as [string, LeafField][]
+                              // Pick the most descriptive preview: first non-image field, then any image
+                              const textSub = subFields.find(([, f]) => f.type !== 'image')
+                              const imgSub  = subFields.find(([, f]) => f.type === 'image')
+                              const previewText = textSub ? preview(sectionKey, `${fieldKey}.${i}.${textSub[0]}`) : ''
+                              const previewImg  = imgSub  ? preview(sectionKey, `${fieldKey}.${i}.${imgSub[0]}`)  : ''
+                              return (
+                                <div key={i} className="rounded border border-gray-200 bg-white">
+                                  <div className="flex items-start gap-1.5 p-1.5">
+                                    {previewImg && isImageLike(previewImg) && (
+                                      <img src={previewImg} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0 bg-gray-100" />
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-[10px] text-gray-400 font-medium">{field.itemLabel} {i + 1}</p>
+                                      <p className="text-xs text-gray-700 truncate">{previewText || '(empty)'}</p>
+                                      <div className="mt-1 flex flex-wrap gap-1">
+                                        {subFields.map(([subKey, subField]) => (
+                                          <button
+                                            key={subKey}
+                                            type="button"
+                                            onClick={() => openFieldEditor(
+                                              sectionKey,
+                                              `${fieldKey}.${i}.${subKey}`,
+                                              preview(sectionKey, `${fieldKey}.${i}.${subKey}`),
+                                              subField.label,
+                                              subField.type as FieldType,
+                                            )}
+                                            className="inline-flex h-6 items-center px-2 rounded text-[10px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100"
+                                          >
+                                            {subField.label}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    <div className="flex flex-col gap-0.5 flex-shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => moveGroupItem(sectionKey, fieldKey, i, Math.max(0, i - 1))}
+                                        disabled={i === 0}
+                                        title="Move up"
+                                        className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-25"
+                                      >↑</button>
+                                      <button
+                                        type="button"
+                                        onClick={() => moveGroupItem(sectionKey, fieldKey, i, Math.min(items.length - 1, i + 1))}
+                                        disabled={i === items.length - 1}
+                                        title="Move down"
+                                        className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-25"
+                                      >↓</button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (canRemove && confirm(`Remove ${field.itemLabel} ${i + 1}?`)) {
+                                            removeGroupItem(sectionKey, fieldKey, i)
+                                          }
+                                        }}
+                                        disabled={!canRemove}
+                                        title={canRemove ? 'Remove' : `At least ${field.minItems ?? 0} required`}
+                                        className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:bg-red-100 hover:text-red-500 disabled:opacity-25"
+                                      >×</button>
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const firstSub = subFields[0]?.[0]
+                                      if (firstSub) scrollToField(sectionKey, `${fieldKey}.${i}.${firstSub}`)
+                                    }}
+                                    className="w-full px-1.5 pb-1 text-[10px] text-gray-400 hover:text-blue-600 text-left"
+                                  >
+                                    Show in preview →
+                                  </button>
+                                </div>
+                              )
+                            })}
+                            <button
+                              type="button"
+                              onClick={() => addGroupItem(sectionKey, fieldKey)}
+                              disabled={!canAdd}
+                              className="w-full h-8 rounded-md text-[11px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-40"
+                            >
+                              {canAdd ? `+ Add ${field.itemLabel}` : `Max ${field.maxItems ?? 99} reached`}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    // Scalar field — label + inline preview + edit button
+                    const val = preview(sectionKey, fieldKey)
+                    const isImg = field.type === 'image' && isImageLike(val)
+                    return (
+                      <button
+                        key={fieldKey}
+                        type="button"
+                        onClick={() => openFieldEditor(sectionKey, fieldKey, val, field.label, field.type as FieldType)}
+                        className="w-full flex items-start gap-2 px-2 py-1.5 rounded-md border border-gray-100 hover:bg-gray-50 text-left"
+                      >
+                        {isImg && <img src={val} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0 bg-gray-100" />}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">{field.label}</p>
+                          <p className="text-xs text-gray-700 truncate">
+                            {isImg ? (val ? 'Image set' : '(no image)') : (val || '(empty)')}
+                          </p>
+                        </div>
+                        <span className="text-[10px] text-blue-600 mt-0.5">Edit</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Image field (URL + upload button + preview) ──────────────────────────────
 
 function ImageField({
@@ -382,10 +577,12 @@ export default function WebsiteEditorPage() {
   // Sidebar width — drag handle adjusts in real time, persisted to
   // localStorage so the preference carries across sessions.
   const [sidebarWidth,     setSidebarWidth]      = useState<number>(() => {
-    if (typeof window === 'undefined') return 320
+    if (typeof window === 'undefined') return 380
     const saved = Number(window.localStorage.getItem('ngfEditorSidebarWidth'))
-    return saved && saved >= 220 && saved <= 720 ? saved : 320
+    return saved && saved >= 260 && saved <= 720 ? saved : 380
   })
+  // Which section accordions are expanded. Starts with all sections expanded.
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({})
   const [schema,           setSchema]           = useState<TemplateSchema | null>(null)
   const [saveStatus,       setSaveStatus]       = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [pushStatus,       setPushStatus]       = useState<'idle' | 'pushing' | 'published' | 'error'>('idle')
@@ -552,6 +749,26 @@ export default function WebsiteEditorPage() {
     })
   }, [schema, scheduleSave])
 
+  // Move an item within a repeatable group from `from` to `to`. Swaps
+  // indices in both content state and the iframe DOM so preview stays in sync.
+  const moveGroupItem = useCallback((sectionKey: string, arrayKey: string, from: number, to: number) => {
+    if (from === to) return
+    setContent(prev => {
+      const section = (prev[sectionKey] ?? {}) as Record<string, unknown>
+      const existing = Array.isArray(section[arrayKey]) ? [...section[arrayKey] as unknown[]] : []
+      if (from < 0 || from >= existing.length || to < 0 || to >= existing.length) return prev
+      const [moved] = existing.splice(from, 1)
+      existing.splice(to, 0, moved)
+      const next = { ...prev, [sectionKey]: { ...section, [arrayKey]: existing } }
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: 'moveGroupItem', group: `${sectionKey}.${arrayKey}`, from, to },
+        '*'
+      )
+      scheduleSave(next)
+      return next
+    })
+  }, [scheduleSave])
+
   // Remove an item at index from a repeatable group: updates state, tells the
   // bridge to remove the DOM card and shift subsequent indices, schedules save.
   const removeGroupItem = useCallback((sectionKey: string, arrayKey: string, index: number) => {
@@ -645,6 +862,27 @@ export default function WebsiteEditorPage() {
     const path = fieldKey ? `${sectionKey}.${fieldKey}` : sectionKey
     iframeRef.current?.contentWindow?.postMessage({ type: 'scrollToField', path }, '*')
   }, [])
+
+  // Open the edit popover for a field directly from the sidebar. Synthesizes
+  // the same clickField state the iframe's `fieldClick` postMessage would.
+  const openFieldEditor = useCallback((sectionKey: string, fieldPath: string, currentValue: string, label: string, fieldType: FieldType) => {
+    // Snapshot pre-edit value (mirrors the fieldClick handler logic)
+    const sectionData = content[sectionKey] as Record<string, unknown> | undefined
+    if (fieldPath.includes('.')) {
+      const [arrayKey, idxStr, subKey] = fieldPath.split('.')
+      const arr = Array.isArray(sectionData?.[arrayKey]) ? sectionData[arrayKey] as unknown[] : []
+      const row = arr[parseInt(idxStr)] as Record<string, unknown> | undefined
+      preEditValue.current = row?.[subKey] as string | boolean | undefined
+    } else {
+      preEditValue.current = sectionData?.[fieldPath] as string | boolean | undefined
+    }
+    // Center popover (no anchor from iframe — render as centered sheet)
+    const vw = typeof window !== 'undefined' ? window.innerWidth  : 1024
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 768
+    setPopoverPos({ top: Math.max(80, vh / 2 - 160), left: Math.max(24, vw / 2 - 160), isSheet: vw < 640 })
+    setClickField({ section: sectionKey, field: fieldPath, value: currentValue, label, fieldType })
+    scrollToField(sectionKey, fieldPath)
+  }, [content, scrollToField])
 
   // First field in a section that differs from the baseline — used as the
   // scroll target when the user clicks a pending-change row.
@@ -908,79 +1146,20 @@ export default function WebsiteEditorPage() {
             )}
           </div>
 
-          {/* Repeatable groups — add/remove cards */}
-          {repeatableGroups.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Sections with Cards</p>
-              <div className="space-y-2">
-                {repeatableGroups.map(g => {
-                  const items = Array.isArray((content[g.section] as Record<string, unknown>)?.[g.arrayKey])
-                    ? ((content[g.section] as Record<string, unknown>)[g.arrayKey] as Record<string, string>[])
-                    : []
-                  const canAdd    = items.length < g.maxItems
-                  const canRemove = items.length > g.minItems
-                  return (
-                    <div key={`${g.section}.${g.arrayKey}`} className="rounded-lg bg-gray-50 border border-gray-100 p-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-gray-700 truncate">{g.label}</span>
-                        <span className="text-[10px] text-gray-400">{items.length}/{g.maxItems}</span>
-                      </div>
-                      <div className="mt-1.5 space-y-1">
-                        {items.map((item, i) => {
-                          // Prefer the user's edited value; fall back to the
-                          // live site's rendered text so the row shows a real
-                          // preview for untouched slots.
-                          const fieldKeys = Object.keys(item)
-                          const preview =
-                            (fieldKeys
-                              .map(k => (typeof item[k] === 'string' && item[k] !== '') ? item[k] as string : siteValues[`${g.section}.${g.arrayKey}.${i}.${k}`])
-                              .find(v => typeof v === 'string' && v)) ?? ''
-                          const isImagePreview = preview.startsWith('http') || preview.startsWith('/') || preview.startsWith('data:')
-                          return (
-                            <div key={i} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md bg-white border border-gray-100">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const firstField = fieldKeys[0]
-                                  if (firstField) scrollToField(g.section, `${g.arrayKey}.${i}.${firstField}`)
-                                }}
-                                className="text-[11px] text-gray-700 truncate text-left min-w-0 flex-1 hover:text-blue-600 flex items-center gap-2"
-                                title="Scroll to this card"
-                              >
-                                {isImagePreview ? (
-                                  <img src={preview} alt="" className="w-6 h-6 rounded object-cover flex-shrink-0 bg-gray-100" />
-                                ) : null}
-                                <span className="truncate">
-                                  <span className="text-gray-400 mr-1">{g.itemLabel} {i + 1}</span>
-                                  {preview && !isImagePreview && <span>· {preview.slice(0, 48)}</span>}
-                                </span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => removeGroupItem(g.section, g.arrayKey, i)}
-                                disabled={!canRemove}
-                                title={canRemove ? 'Remove card' : `At least ${g.minItems} required`}
-                                className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full text-gray-400 hover:bg-red-100 hover:text-red-500 disabled:opacity-30 disabled:hover:bg-transparent"
-                              >
-                                ×
-                              </button>
-                            </div>
-                          )
-                        })}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => addGroupItem(g.section, g.arrayKey)}
-                        disabled={!canAdd}
-                        className="mt-2 w-full h-8 rounded-md text-[11px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-40 disabled:hover:bg-blue-50"
-                      >
-                        {canAdd ? `+ Add ${g.itemLabel}` : `Max ${g.maxItems} reached`}
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
+          {/* Sections — full accordion view of every field on the site */}
+          {schema && (
+            <SectionsAccordion
+              schema={schema}
+              content={content}
+              siteValues={siteValues}
+              openSections={openSections}
+              setOpenSections={setOpenSections}
+              openFieldEditor={openFieldEditor}
+              scrollToField={scrollToField}
+              addGroupItem={addGroupItem}
+              removeGroupItem={removeGroupItem}
+              moveGroupItem={moveGroupItem}
+            />
           )}
 
           {/* Publish history */}
