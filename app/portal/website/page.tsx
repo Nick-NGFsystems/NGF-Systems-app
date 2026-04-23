@@ -203,14 +203,35 @@ function SectionsAccordion({
   const isImageLike = (v: string) =>
     v.startsWith('http') || v.startsWith('/') || v.startsWith('data:')
 
+  // Count how many fields in a section have a rendered value we can preview.
+  // Sections with zero surface area (e.g. a Brand section containing only
+  // empty sr-only anchors that nothing else populates) are hidden so the
+  // sidebar never shows mystery empty boxes.
+  const fieldHasValue = (sectionKey: string, fieldKey: string, field: FieldDefinition): boolean => {
+    if (field.type === 'repeatable') {
+      const items = Array.isArray((content[sectionKey] as Record<string, unknown>)?.[fieldKey])
+        ? (content[sectionKey] as Record<string, unknown>)[fieldKey] as Record<string, string>[]
+        : []
+      if (items.length > 0) return true
+      // Check scraped site values — if any item's sub-field has a rendered value, keep it.
+      return Object.keys(siteValues).some(k => k.startsWith(`${sectionKey}.${fieldKey}.`) && siteValues[k])
+    }
+    return Boolean(preview(sectionKey, fieldKey))
+  }
+
+  const sectionHasContent = (sectionKey: string, section: SectionSchema): boolean =>
+    Object.entries(section.fields).some(([fk, f]) => fieldHasValue(sectionKey, fk, f))
+
   return (
     <div>
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Sections</p>
       <div className="space-y-2">
-        {Object.entries(schema.sections).map(([sectionKey, section]) => {
-          const isOpen = openSections[sectionKey] ?? true  // default open
+        {Object.entries(schema.sections)
+          .filter(([sectionKey, section]) => sectionHasContent(sectionKey, section))
+          .map(([sectionKey, section]) => {
+          const isOpen = openSections[sectionKey] ?? false  // default collapsed
           const toggle = () =>
-            setOpenSections(s => ({ ...s, [sectionKey]: !(s[sectionKey] ?? true) }))
+            setOpenSections(s => ({ ...s, [sectionKey]: !(s[sectionKey] ?? false) }))
 
           return (
             <div key={sectionKey} className="rounded-lg border border-gray-100 bg-white overflow-hidden">
@@ -220,12 +241,19 @@ function SectionsAccordion({
                 className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 hover:bg-gray-100 transition-colors"
               >
                 <span className="text-xs font-semibold text-gray-800 truncate">{section.label}</span>
-                <span className={`text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}>›</span>
+                <span className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[10px] text-gray-400">
+                    {Object.entries(section.fields).filter(([fk, f]) => fieldHasValue(sectionKey, fk, f)).length}
+                  </span>
+                  <span className={`text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}>›</span>
+                </span>
               </button>
 
               {isOpen && (
                 <div className="p-2 space-y-2">
-                  {Object.entries(section.fields).map(([fieldKey, field]) => {
+                  {Object.entries(section.fields)
+                    .filter(([fk, f]) => fieldHasValue(sectionKey, fk, f))
+                    .map(([fieldKey, field]) => {
                     if (field.type === 'repeatable') {
                       const items = Array.isArray((content[sectionKey] as Record<string, unknown>)?.[fieldKey])
                         ? ((content[sectionKey] as Record<string, unknown>)[fieldKey] as Record<string, string>[])

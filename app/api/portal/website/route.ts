@@ -234,51 +234,85 @@ async function scrapeSchemaFromSite(siteUrl: string, htmlArg?: string): Promise<
 }
 
 /**
- * Extract the rendered text value for every `data-ngf-field` so the editor
- * can show real previews in the sidebar (e.g. the actual review quote, not
- * just "Review 1"). Simple regex: first chunk of text between the opening
- * tag and the next `<`. Good enough for 80% of cases; we'd need a real HTML
- * parser for 100%, but those edge cases (nested markup) just show a shorter
- * snippet, which is fine for a sidebar preview.
- *
- * For image fields we capture `src` instead of text content.
+ * Extract the rendered value for every `data-ngf-field` so the editor can
+ * show real previews in the sidebar (e.g. the actual review quote, not just
+ * "Review 1"). Walks the HTML: for each opening tag carrying data-ngf-field
+ * we find the matching closing tag by counting nested same-name tags, then
+ * strip inner markup to get clean text. That handles fields with nested
+ * `<span>`s, `<strong>`s, etc. For <img> fields we return the `src`.
  */
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#39;/g,   "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;/gi,  '&')
+    .replace(/&lt;/gi,   '<')
+    .replace(/&gt;/gi,   '>')
+    .replace(/&nbsp;/gi, ' ')
+}
+
 function scrapeFieldValuesFromHtml(html: string): Record<string, string> {
   const values: Record<string, string> = {}
 
-  // Text fields — opening tag then first run of non-tag chars.
-  const textRe = /<[a-z][^>]*\sdata-ngf-field="([^"]+)"[^>]*>([^<]*)/gi
-  let tm: RegExpExecArray | null
-  while ((tm = textRe.exec(html)) !== null) {
-    const path = tm[1]
-    const raw  = tm[2] ?? ''
-    // Decode common HTML entities
-    const decoded = raw
-      .replace(/&#x27;/g, "'")
-      .replace(/&apos;/g, "'")
-      .replace(/&quot;/g, '"')
-      .replace(/&amp;/g,  '&')
-      .replace(/&lt;/g,   '<')
-      .replace(/&gt;/g,   '>')
-      .replace(/&nbsp;/g, ' ')
-      .trim()
-    // First non-empty occurrence wins (later duplicates — e.g. nav in both
-    // header and footer — don't overwrite).
-    if (decoded && values[path] === undefined) {
-      values[path] = decoded
-    }
-  }
+  // Match every opening tag that carries data-ngf-field and capture:
+  //   $1 = tag name       (h1, p, span, div, …)
+  //   $2 = full attribute blob   (used only to pull out data-ngf-field + src)
+  //   $3 = the >           (start of inner content)
+  const openRe = /<([a-z][a-z0-9-]*)\b([^>]*\sdata-ngf-field="[^"]+"[^>]*)(\/?)>/gi
+  let m: RegExpExecArray | null
+  while ((m = openRe.exec(html)) !== null) {
+    const tagName   = m[1].toLowerCase()
+    const attrs     = m[2]
+    const selfClose = m[3] === '/'
+    const pathMatch = /\sdata-ngf-field="([^"]+)"/i.exec(attrs)
+    if (!pathMatch) continue
+    const path = pathMatch[1]
+    if (values[path] !== undefined) continue  // first occurrence wins
 
-  // Image fields — <img ... data-ngf-field="..." ... src="..."> (src before or after)
-  const imgRe = /<img\b[^>]*data-ngf-field="([^"]+)"[^>]*>/gi
-  let im: RegExpExecArray | null
-  while ((im = imgRe.exec(html)) !== null) {
-    const tag  = im[0]
-    const path = im[1]
-    const srcMatch = /\ssrc="([^"]+)"/i.exec(tag)
-    if (srcMatch && values[path] === undefined) {
-      values[path] = srcMatch[1]
+    // Image fields — read src attribute, no inner content.
+    if (tagName === 'img') {
+      const srcMatch = /\ssrc="([^"]+)"/i.exec(attrs)
+      if (srcMatch) values[path] = srcMatch[1]
+      continue
     }
+
+    // Self-closing element (<br />, <input />, etc.) — no inner text.
+    if (selfClose) continue
+
+    // Void elements that never have a closing tag.
+    if (/^(area|base|br|col|embed|hr|input|link|meta|param|source|track|wbr)$/.test(tagName)) {
+      continue
+    }
+
+    // Walk forward counting nested <tagName> opens to find the matching
+    // </tagName>. Handles common React output where fields have inline
+    // children like <span>highlights</span>.
+    const contentStart = openRe.lastIndex
+    const scanRe       = new RegExp(`<(/?)${tagName}\\b[^>]*?(/?)>`, 'gi')
+    scanRe.lastIndex   = contentStart
+    let depth          = 1
+    let closeEnd       = -1
+    let sm: RegExpExecArray | null
+    while ((sm = scanRe.exec(html)) !== null) {
+      const isClose = sm[1] === '/'
+      const isSelf  = sm[2] === '/'
+      if (isClose) {
+        depth--
+        if (depth === 0) { closeEnd = sm.index; break }
+      } else if (!isSelf) {
+        depth++
+      }
+    }
+    if (closeEnd === -1) continue
+
+    const innerHtml = html.slice(contentStart, closeEnd)
+    // Strip all inner tags, collapse whitespace, decode entities.
+    const text = decodeEntities(innerHtml.replace(/<[^>]+>/g, ' '))
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (text) values[path] = text
   }
 
   return values
