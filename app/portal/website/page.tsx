@@ -1223,30 +1223,59 @@ export default function WebsiteEditorPage() {
       </aside>
 
       {/* Drag handle — pull right to widen the sidebar, left to shrink it.
-          Persists width to localStorage across editor sessions. */}
+          Persists width to localStorage across editor sessions.
+          NOTE: we disable pointer-events on the iframe during the drag so it
+          doesn't swallow pointermove events the moment the cursor crosses
+          into it. Without that guard the drag only works within the few-
+          pixel-wide handle itself. Also forces user-select:none on body so
+          text selection doesn't hijack the interaction. */}
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize editor sidebar"
+        aria-label="Resize editor sidebar (drag)"
+        title="Drag to resize"
         onPointerDown={(e) => {
           e.preventDefault()
           const startX  = e.clientX
           const startW  = sidebarWidth
-          const onMove  = (ev: PointerEvent) => {
-            const next = Math.min(720, Math.max(220, startW + (ev.clientX - startX)))
-            setSidebarWidth(next)
+          let   latest  = startW
+          const iframe  = iframeRef.current
+          const prevCursor = document.body.style.cursor
+          const prevSelect = document.body.style.userSelect
+          document.body.style.cursor     = 'col-resize'
+          document.body.style.userSelect = 'none'
+          if (iframe) iframe.style.pointerEvents = 'none'
+
+          const onMove = (ev: PointerEvent) => {
+            latest = Math.min(720, Math.max(260, startW + (ev.clientX - startX)))
+            setSidebarWidth(latest)
           }
           const onUp = () => {
             window.removeEventListener('pointermove', onMove)
             window.removeEventListener('pointerup',   onUp)
-            try { localStorage.setItem('ngfEditorSidebarWidth', String(sidebarWidth)) } catch {}
+            window.removeEventListener('pointercancel', onUp)
+            document.body.style.cursor     = prevCursor
+            document.body.style.userSelect = prevSelect
+            if (iframe) iframe.style.pointerEvents = ''
+            try { localStorage.setItem('ngfEditorSidebarWidth', String(latest)) } catch {}
           }
-          window.addEventListener('pointermove', onMove)
-          window.addEventListener('pointerup',   onUp)
+          window.addEventListener('pointermove',   onMove)
+          window.addEventListener('pointerup',     onUp)
+          window.addEventListener('pointercancel', onUp)
         }}
-        className="hidden md:block w-1 flex-shrink-0 cursor-col-resize bg-gray-100 hover:bg-blue-300 transition-colors"
+        className="hidden md:flex w-2 flex-shrink-0 cursor-col-resize bg-gray-100 hover:bg-blue-400 active:bg-blue-500 transition-colors items-center justify-center group select-none"
         style={{ touchAction: 'none' }}
-      />
+      >
+        {/* Visual grip dots so it's obvious the handle is draggable */}
+        <div className="flex flex-col gap-0.5 opacity-40 group-hover:opacity-80 pointer-events-none">
+          <span className="w-0.5 h-0.5 rounded-full bg-gray-600" />
+          <span className="w-0.5 h-0.5 rounded-full bg-gray-600" />
+          <span className="w-0.5 h-0.5 rounded-full bg-gray-600" />
+          <span className="w-0.5 h-0.5 rounded-full bg-gray-600" />
+          <span className="w-0.5 h-0.5 rounded-full bg-gray-600" />
+          <span className="w-0.5 h-0.5 rounded-full bg-gray-600" />
+        </div>
+      </div>
 
       {/* ── Preview pane ── */}
       <div className="flex-1 flex flex-col min-w-0 relative">
