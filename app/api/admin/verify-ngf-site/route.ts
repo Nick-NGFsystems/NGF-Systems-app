@@ -56,13 +56,30 @@ export async function POST(request: NextRequest) {
       html.includes('app.ngfsystems.com/api/public/website') ||   // legacy path
       html.includes('ngfsystems.com/api/public')
 
+    // Debug payload — included when verification fails so we can see WHY.
+    // Safe to include; only returned to admin users.
+    const debug = compatible
+      ? undefined
+      : {
+          fetched_url:    targetUrl,
+          html_bytes:     html.length,
+          first_200:      html.slice(0, 200),
+          has_ngf_public: html.includes('ngf-public-api'),
+          has_meta_tag:   /<meta[^>]*ngf-public-api[^>]*>/i.test(html),
+        }
+
     return NextResponse.json({
       compatible,
       error: compatible
         ? undefined
         : 'This does not appear to be an NGF-managed site. The page source must reference the NGF content API.',
+      debug,
     })
-  } catch {
-    return NextResponse.json({ compatible: false, error: 'Verification failed' }, { status: 500 })
+  } catch (err) {
+    return NextResponse.json({
+      compatible: false,
+      error:      'Verification failed',
+      debug:      err instanceof Error ? { message: err.message, name: err.name } : { message: String(err) },
+    }, { status: 500 })
   }
 }
