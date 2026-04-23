@@ -367,16 +367,20 @@ export default function WebsiteEditorPage() {
     setSaveStatus('saving')
     saveTimer.current = setTimeout(async () => {
       try {
+        // Strip empty strings before persisting — keeps the DB from accumulating
+        // '' entries from applySchemaDefaults. Client sites use `||` fallbacks,
+        // so omitted keys fall through to hardcoded defaults.
+        const filtered = stripEmpty(c)
         const res = await fetch('/api/portal/website', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: c }),
+          body: JSON.stringify({ content: filtered }),
         })
         if (res.ok) { setHasDraft(true); setSaveStatus('saved') } else { setSaveStatus('error') }
         setTimeout(() => setSaveStatus('idle'), 2000)
       } catch { setSaveStatus('error'); setTimeout(() => setSaveStatus('idle'), 2000) }
     }, 800)
-  }, [])
+  }, [stripEmpty])
 
   const updateField = useCallback((sectionKey: string, fieldPath: string, value: string | boolean) => {
     setContent(prev => {
