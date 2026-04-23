@@ -61,7 +61,7 @@ export async function PATCH(
 
     const { clientId } = await params
     const body = await req.json()
-    const { requestId, status, notes } = body
+    const { requestId, status, notes, jobDuration } = body
 
     if (!requestId || !status) {
       return NextResponse.json(
@@ -107,6 +107,10 @@ export async function PATCH(
       updateData.notes = notes
     }
 
+    if (typeof jobDuration === 'number' && jobDuration > 0) {
+      updateData.jobDuration = jobDuration
+    }
+
     const updated = await (clientDb as any).serviceRequest.update({
       where: { id: requestId },
       data: updateData,
@@ -136,7 +140,7 @@ export async function PATCH(
             <p>Hi ${updated.name},</p>
             <p>Great news — your service request for your ${updated.bikeYear} ${updated.bikeMake} ${updated.bikeModel} has been approved.</p>
             <p><strong>Service:</strong> ${updated.service}</p>
-            ${updated.jobDuration ? `<p><strong>Estimated duration:</strong> ${updated.jobDuration} hours</p>` : ''}
+            ${updated.jobDuration ? `<p><strong>Estimated duration:</strong> ${updated.jobDuration} ${updated.jobDuration === 1 ? 'day' : 'days'}</p>` : ''}
             ${notes ? `<p><strong>Notes from shop:</strong> ${notes}</p>` : ''}
             <p>Click the link below to complete your booking:</p>
             <a href="${bookingLink}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; margin: 16px 0;">

@@ -37,6 +37,7 @@ export default function ServiceRequestsManager({ requests, clientId, bookingUrl 
   const router = useRouter()
   const [loading, setLoading] = useState<string | null>(null)
   const [notes, setNotes] = useState<Record<string, string>>({})
+  const [jobDurations, setJobDurations] = useState<Record<string, string>>({})
   const [filter, setFilter] = useState('all')
 
   const filtered = filter === 'all' ? requests : requests.filter((r) => r.status === filter)
@@ -44,10 +45,17 @@ export default function ServiceRequestsManager({ requests, clientId, bookingUrl 
   async function updateRequest(requestId: string, status: string) {
     setLoading(requestId)
     try {
+      const rawDuration = jobDurations[requestId]
+      const parsedDuration = rawDuration ? parseInt(rawDuration, 10) : undefined
       const res = await fetch(`/api/admin/portal/${clientId}/service-requests`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requestId, status, notes: notes[requestId] }),
+        body: JSON.stringify({
+          requestId,
+          status,
+          notes: notes[requestId],
+          jobDuration: !isNaN(parsedDuration ?? NaN) ? parsedDuration : undefined,
+        }),
       })
       const data = await res.json()
       if (!data.success) {
@@ -119,7 +127,7 @@ export default function ServiceRequestsManager({ requests, clientId, bookingUrl 
             )}
             {req.jobDuration && (
               <p>
-                <span className="text-gray-500">Est. duration:</span> {req.jobDuration} hrs
+                <span className="text-gray-500">Est. duration:</span> {req.jobDuration} {req.jobDuration === 1 ? 'day' : 'days'}
               </p>
             )}
           </div>
@@ -138,7 +146,21 @@ export default function ServiceRequestsManager({ requests, clientId, bookingUrl 
           </div>
 
           {req.status === 'pending' || req.status === 'followup' ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Estimated Duration (days) — shown to customer on booking page
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={jobDurations[req.id] ?? (req.jobDuration !== null ? String(req.jobDuration) : '')}
+                  onChange={(e) => setJobDurations((prev) => ({ ...prev, [req.id]: e.target.value }))}
+                  placeholder="e.g. 2"
+                  className="mt-1 w-32 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-600 focus:outline-none"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => updateRequest(req.id, 'approved')}
                 disabled={loading === req.id}
@@ -160,6 +182,7 @@ export default function ServiceRequestsManager({ requests, clientId, bookingUrl 
               >
                 Decline
               </button>
+              </div>
             </div>
           ) : (
             <div className="flex flex-wrap items-center gap-3">
