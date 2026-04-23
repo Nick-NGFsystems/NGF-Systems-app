@@ -316,6 +316,22 @@ Each entry in the Pending Changes list is a button:
 
 "Discard all" calls `revertAll()` which resets every section back to baseline.
 
+### Repeatable Group Add / Remove (cards in the sidebar)
+
+For every `data-ngf-group` the scraper discovers, the editor sidebar renders a "Sections with Cards" panel. Each group shows:
+- Its label + current count vs `maxItems`
+- One row per existing item (click the row → `scrollToField` to that card's first field in the iframe)
+- × on each row → `removeGroupItem` (respects `minItems`)
+- "+ Add <itemLabel>" button → `addGroupItem` (respects `maxItems`)
+
+State flow — all changes go through `content[section][arrayKey]` just like scalar edits:
+- **Add** appends `{ ...defaultItem }` to the array, schedules a save, and posts `addGroupItem` to the bridge. Bridge clones the group's last child, rewrites every descendant `data-ngf-field` to the new index, clears textContent + ngfDefault so the placeholder shows, appends and scrolls.
+- **Remove** splices the item out of the array, schedules save, posts `removeGroupItem`. Bridge finds and removes the card whose descendants' fields start with `group.N.`, then shifts every later sibling's indices down by one.
+
+No iframe reload is needed — the DOM stays in sync with state. After the next Publish, SSR re-renders the full set naturally from the published content.
+
+Newly-added cards are click-to-edit the same way existing cards are — the bridge doesn't distinguish between server-rendered and cloned-in-edit-mode DOM nodes.
+
 ### Version History and Revert
 
 Every successful Publish writes a snapshot into `website_content_versions` with the full content blob, timestamped. The table has `(client_id, published_at DESC)` indexed and is capped at **20 most recent entries per client** (older ones pruned inside the push handler).
