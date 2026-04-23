@@ -318,12 +318,49 @@ export default function WebsiteEditorPage() {
     [publishedContent, schema]
   )
 
+  // Strip empty-string values before sending to the iframe bridge. When the
+  // editor has no saved content yet, applySchemaDefaults fills every field
+  // with '' — if we push those, the bridge overwrites the site's actual
+  // rendered text with empty placeholders. We want the site's native content
+  // to stay visible until the user types something.
+  //
+  // Also drops whole sections that have only empty values. Array items keep
+  // their structure but drop empty strings inside them.
+  const stripEmpty = useCallback((c: ContentBlock): ContentBlock => {
+    const out: ContentBlock = {}
+    for (const [sectionKey, sectionValue] of Object.entries(c ?? {})) {
+      if (!sectionValue || typeof sectionValue !== 'object') continue
+      const section: Record<string, unknown> = {}
+      for (const [fieldKey, fieldValue] of Object.entries(sectionValue as Record<string, unknown>)) {
+        if (typeof fieldValue === 'string') {
+          if (fieldValue !== '') section[fieldKey] = fieldValue
+        } else if (Array.isArray(fieldValue)) {
+          const cleaned = fieldValue.map((item) => {
+            if (!item || typeof item !== 'object') return item
+            const row: Record<string, unknown> = {}
+            for (const [k, v] of Object.entries(item as Record<string, unknown>)) {
+              if (typeof v === 'string' && v === '') continue
+              row[k] = v
+            }
+            return row
+          })
+          if (cleaned.length > 0) section[fieldKey] = cleaned
+        } else if (fieldValue !== undefined && fieldValue !== null) {
+          section[fieldKey] = fieldValue
+        }
+      }
+      if (Object.keys(section).length > 0) out[sectionKey] = section
+    }
+    return out
+  }, [])
+
   const pushToPreview = useCallback((c: ContentBlock) => {
     if (previewTimer.current) clearTimeout(previewTimer.current)
     previewTimer.current = setTimeout(() => {
-      iframeRef.current?.contentWindow?.postMessage({ type: 'contentUpdate', content: c }, '*')
+      const filtered = stripEmpty(c)
+      iframeRef.current?.contentWindow?.postMessage({ type: 'contentUpdate', content: filtered }, '*')
     }, 120)
-  }, [])
+  }, [stripEmpty])
 
   const scheduleSave = useCallback((c: ContentBlock) => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
