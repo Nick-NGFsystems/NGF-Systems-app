@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { db } from '@/lib/db'
 import PortalManager from '@/components/admin/PortalManager'
+import ResetWebsiteContentButton from '@/components/admin/ResetWebsiteContentButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,6 +61,8 @@ export default async function AdminPortalClientPage({ params }: PageProps) {
           </Link>
         </div>
       )}
+
+      <ResetWebsiteContentButton clientId={client.id} clientName={client.name ?? 'this client'} />
 
       <PortalManager
         clientId={client.id}
