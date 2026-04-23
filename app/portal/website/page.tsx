@@ -21,6 +21,10 @@ interface RepeatableField {
   maxItems?: number
   fields: Record<string, LeafField>
   defaultItem: Record<string, string>
+  /** How many items the live site is currently SSR-rendering. Editor uses
+   *  this as the initial array length so the sidebar shows the same rows
+   *  the client's site is already rendering from its hardcoded defaults. */
+  initialItemCount?: number
 }
 
 type FieldDefinition = LeafField | RepeatableField
@@ -67,9 +71,17 @@ function applySchemaDefaults(content: ContentBlock, schema: TemplateSchema): Con
     const sectionData: ContentBlock = {}
     for (const [fieldKey, field] of Object.entries(section.fields)) {
       if (field.type === 'repeatable') {
+        // Prefer saved content. Otherwise use whichever is larger between
+        // minItems and the SSR-rendered count (initialItemCount) so the
+        // sidebar shows as many rows as the live site is already displaying.
+        const initialLength = Math.max(
+          field.minItems ?? 0,
+          field.initialItemCount ?? 0,
+          1,
+        )
         sectionData[fieldKey] = Array.isArray(existing[fieldKey]) && existing[fieldKey].length > 0
           ? existing[fieldKey]
-          : Array.from({ length: field.minItems ?? 1 }, () => ({ ...field.defaultItem }))
+          : Array.from({ length: initialLength }, () => ({ ...field.defaultItem }))
       } else {
         sectionData[fieldKey] = existing[fieldKey] ?? field.default ?? ''
       }
@@ -152,6 +164,82 @@ function computePopoverPosition(
   return { top, left, isSheet: false }
 }
 
+// ── Image field (URL + upload button + preview) ──────────────────────────────
+
+function ImageField({
+  value, onChange, inputRef,
+}: {
+  value: string
+  onChange: (v: string) => void
+  inputRef: React.Ref<HTMLInputElement>
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    setUploadError(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/portal/upload', { method: 'POST', body: formData })
+      const data = (await res.json()) as { success?: boolean; data?: { url?: string }; error?: string }
+      if (!res.ok || !data.success || !data.data?.url) {
+        setUploadError(data.error ?? 'Upload failed')
+        return
+      }
+      onChange(data.data.url)
+    } catch {
+      setUploadError('Upload failed')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <input
+        ref={inputRef}
+        type="text"
+        value={value || ''}
+        placeholder="https://… or use Upload"
+        onChange={e => onChange(e.target.value)}
+        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="h-9 px-3 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
+        >
+          {uploading ? 'Uploading…' : 'Upload from computer'}
+        </button>
+        {uploadError && <span className="text-xs text-red-600">{uploadError}</span>}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFileSelect}
+        />
+      </div>
+      {value && (
+        <img
+          src={value}
+          alt=""
+          className="w-full h-32 object-cover rounded-xl bg-gray-100"
+          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+        />
+      )}
+    </div>
+  )
+}
+
 // ── Edit Popover ──────────────────────────────────────────────────────────────
 
 function EditPopover({
@@ -232,23 +320,7 @@ function EditPopover({
               />
             </div>
           ) : field.fieldType === 'image' ? (
-            <div className="space-y-2">
-              <input
-                ref={inputRef as React.Ref<HTMLInputElement>}
-                type="text"
-                value={value || ''}
-                placeholder="https://…"
-                onChange={e => handleChange(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              {value && (
-                <img
-                  src={value} alt=""
-                  className="w-full h-24 object-cover rounded-xl bg-gray-100"
-                  onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                />
-              )}
-            </div>
+            <ImageField value={value} onChange={handleChange} inputRef={inputRef as React.Ref<HTMLInputElement>} />
           ) : field.fieldType === 'textarea' ? (
             <textarea
               ref={inputRef as React.Ref<HTMLTextAreaElement>}

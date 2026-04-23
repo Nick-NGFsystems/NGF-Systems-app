@@ -24,6 +24,10 @@ export interface RepeatableField {
   maxItems?: number
   fields: Record<string, LeafField>
   defaultItem: Record<string, string>
+  /** How many items the live site is currently rendering (max index + 1
+   *  detected in the scraped HTML). Editor uses this as the initial array
+   *  length so the sidebar shows the same rows the client already has. */
+  initialItemCount?: number
 }
 
 export type FieldDefinition = LeafField | RepeatableField
@@ -173,6 +177,23 @@ async function scrapeSchemaFromSite(siteUrl: string): Promise<SiteSchema | null>
         defaultItem[f.key] = ''
       }
 
+      // Count how many items the SSR is actually rendering by scanning for
+      // every `data-ngf-field="<group>.N.*"` and tracking the max N. Used as
+      // initialItemCount so the editor's sidebar shows the same rows the
+      // live site already has (without this, an empty DB + minItems=0 means
+      // the sidebar shows zero slots even though the site renders N cards).
+      const itemIdxRe = new RegExp(
+        `data-ngf-field="${groupPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.(\\d+)\\.[^"]+"`,
+        'gi',
+      )
+      let maxIdx = -1
+      let idxMatch: RegExpExecArray | null
+      while ((idxMatch = itemIdxRe.exec(html)) !== null) {
+        const n = parseInt(idxMatch[1], 10)
+        if (!isNaN(n) && n > maxIdx) maxIdx = n
+      }
+      const initialItemCount = maxIdx >= 0 ? maxIdx + 1 : undefined
+
       const repeatableField: RepeatableField = {
         type:        'repeatable',
         label:       itemLabel + 's',
@@ -181,6 +202,7 @@ async function scrapeSchemaFromSite(siteUrl: string): Promise<SiteSchema | null>
         maxItems:    maxItemsMatch    ? parseInt(maxItemsMatch[1])    : 20,
         fields:      subFields,
         defaultItem,
+        ...(initialItemCount !== undefined ? { initialItemCount } : {}),
       }
 
       sectionMap[sectionKey].fields[arrayKey] = repeatableField
