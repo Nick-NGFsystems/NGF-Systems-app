@@ -33,6 +33,31 @@ export async function POST() {
       },
     })
 
+    // Snapshot this publish into version history so the client can revert.
+    // Non-fatal — if the snapshot fails the publish still succeeded.
+    try {
+      await db.websiteContentVersion.create({
+        data: {
+          client_id: client.id,
+          content:   websiteContent.draft_content as object,
+        },
+      })
+      // Cap history at 20 snapshots per client so the table stays bounded.
+      const extras = await db.websiteContentVersion.findMany({
+        where:   { client_id: client.id },
+        orderBy: { published_at: 'desc' },
+        skip:    20,
+        select:  { id: true },
+      })
+      if (extras.length > 0) {
+        await db.websiteContentVersion.deleteMany({
+          where: { id: { in: extras.map(e => e.id) } },
+        })
+      }
+    } catch (versionErr) {
+      console.error('[portal/website/push] snapshot failed (non-fatal)', versionErr)
+    }
+
     // Optionally ping the website's revalidate endpoint (non-fatal if it fails —
     // the site uses cache: no-store so the new content appears on next page load anyway)
     if (client.config?.site_url) {

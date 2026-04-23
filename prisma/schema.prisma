@@ -289,5 +289,22 @@ model WebsiteContent {
   created       DateTime  @default(now())
   updated       DateTime  @updatedAt
 
+  versions      WebsiteContentVersion[]
+
   @@map("website_content")
+}
+
+/// One snapshot per Publish. Lets clients revert to any prior version
+/// without losing data when they make a mistake or want to roll back.
+model WebsiteContentVersion {
+  id           String   @id @default(cuid())
+  client_id    String
+  content      Json     // Full snapshot of content at publish time
+  published_at DateTime @default(now())
+  note         String?  // Optional label set by the user (e.g. "Hero redesign")
+
+  website      WebsiteContent @relation(fields: [client_id], references: [client_id], onDelete: Cascade)
+
+  @@index([client_id, published_at(sort: Desc)])
+  @@map("website_content_versions")
 }
