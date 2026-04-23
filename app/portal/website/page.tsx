@@ -861,13 +861,24 @@ export default function WebsiteEditorPage() {
   }, [baseContent, pushToPreview, scheduleSave])
 
   const revertAll = useCallback(() => {
+    // Cancel any pending debounced save — we're nuking the draft entirely.
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     setContent(() => {
       const next = { ...baseContent }
       pushToPreview(next)
-      scheduleSave(next)
       return next
     })
-  }, [baseContent, pushToPreview, scheduleSave])
+    // Fire-and-forget DELETE clears draft_content on the server right away
+    // instead of relying on the debounced save, which gets lost on refresh.
+    setHasDraft(false)
+    setSaveStatus('saving')
+    fetch('/api/portal/website', { method: 'DELETE' })
+      .then(res => setSaveStatus(res.ok ? 'saved' : 'error'))
+      .catch(() => setSaveStatus('error'))
+      .finally(() => { setTimeout(() => setSaveStatus('idle'), 1500) })
+    // Clear the pending-row expansion state since there's nothing left to show
+    setExpandedPending({})
+  }, [baseContent, pushToPreview])
 
   const reloadPreview = useCallback(() => {
     if (iframeRef.current) iframeRef.current.src = iframeRef.current.src

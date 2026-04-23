@@ -431,3 +431,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /api/portal/website  — discard the draft
+// Sets draft_content = null so `has_draft` goes false and the editor opens
+// back up to "Everything is published." on next load. Never touches the
+// published content.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function DELETE() {
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  try {
+    const client = await db.client.findUnique({
+      where:  { clerk_user_id: userId },
+      select: { id: true },
+    })
+    if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 })
+
+    // Only update if there's actually a row — no-op if the client has never
+    // saved content. Deliberately not an upsert: we don't want to create
+    // empty website_content rows from a discard call.
+    await db.websiteContent.updateMany({
+      where: { client_id: client.id },
+      data:  { draft_content: null },
+    })
+
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error('[portal/website DELETE]', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
