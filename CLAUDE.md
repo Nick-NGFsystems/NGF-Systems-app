@@ -263,6 +263,15 @@ User clicks "Publish Changes"
       → optionally pings WEBSITE_REVALIDATION_SECRET on client site (non-fatal)
   → editor sets publishedContent = content, hasDraft = false, reloads iframe after 1.2s
 
+User clicks × on a pending change (section, field, or Discard all)
+  → flushSaveOrClear(next) — cancels the debounced save, then either:
+      - stripEmpty(next) === stripEmpty(baseContent)
+          → DELETE /api/portal/website → draft_content = null, has_draft = false
+      - otherwise
+          → POST /api/portal/website with the remaining draft immediately
+  (Route all revert paths through flushSaveOrClear — scheduleSave's
+   debounce otherwise loses the revert on refresh.)
+
 User clicks "Revert" on a history entry
   → POST /api/portal/website/versions { versionId }
       → auto-snapshots current content first (undoable)
@@ -286,6 +295,7 @@ The public content endpoint returns only published `content` — never `draft_co
 | Editor → Site | `scrollToField` | `{ path: 'section.field' }` | Scrolls the target field into view and flashes a blue highlight pulse (`ngf-field-focus` class, 1.6s). Used by the clickable pending-change rows |
 | Editor → Site | `addGroupItem` | `{ group: 'section.arrayKey', newIndex: number }` | Clones the group container's last child as a template, re-indexes every descendant `data-ngf-field` to `newIndex`, resets text to placeholder or images to a grey "Click to set image" SVG, and appends. Used by the sidebar's "+ Add" button |
 | Editor → Site | `removeGroupItem` | `{ group: 'section.arrayKey', index: number }` | Removes the card whose descendants' fields start with `group.index.` and shifts every later sibling's indices down by one so they stay in sync with the editor's content array |
+| Editor → Site | `moveGroupItem` | `{ group: 'section.arrayKey', from: number, to: number }` | Reorders two cards. Swaps DOM positions via `insertBefore`, then rewrites every descendant `data-ngf-field` index on both moved cards AND every card between them so indices stay contiguous and match the editor's content array order |
 | Site → Editor | `fieldClick` | `{ section, field, currentValue, elementRect }` | User clicked an editable field; editor opens the edit popover. `currentValue` is the DOM text for text fields, or `el.getAttribute('src')` for image fields |
 
 `elementRect` is `{ top, left, bottom, right, width, height }` in the iframe's viewport coordinates. The editor adds the iframe's own `getBoundingClientRect()` to convert to page-level coordinates for popover positioning.
@@ -314,33 +324,77 @@ Changes are applied to `content` state immediately as the user types (`onChange`
 
 **Cancel behavior** — clicking Cancel (or the scrim, or the × in the popover corner) restores the field to its pre-edit value. The editor snapshots the original `content[section][field]` into a ref (`preEditValue`) when the popover opens, and on Cancel calls `updateField` with that snapshot. If the snapshot was `undefined` (field never had a stored value), Cancel sends `''`, which the bridge interprets as "restore server-rendered default".
 
-### Pending Changes Sidebar — Click-to-Scroll + Per-Section Revert
+### Pending Changes Sidebar — Expandable Diff
 
-Each entry in the Pending Changes list is a button:
-- **Click the row body** → sends `scrollToField` to the iframe, which scrolls and flash-highlights the first changed field in that section
-- **Click the × on the right** → calls `revertSection(sectionKey)`, which sets `content[sectionKey] = baseContent[sectionKey]`, pushes to the preview (bridge restores defaults for any `''` fields), and schedules a save
+Each entry in the Pending Changes list is a collapsible row with three controls:
 
-`firstChangedFieldOf(sectionKey)` walks the section's schema to find the first scalar or repeatable-item field that differs from baseline — used as the scroll target.
+- **Caret + section label + count** → click to toggle the inline diff expansion
+- **↗ button** → sends `scrollToField` to the iframe, scrolls and flash-highlights the first changed field in that section
+- **× button** → calls `revertSection(sectionKey)` — reverts the whole section
 
-"Discard all" calls `revertAll()` which resets every section back to baseline.
+When expanded, the row shows one card per changed field:
+- Header: `"<ItemLabel> N · <FieldLabel>"` (e.g. `"Review 2 · Quote"`) with green `added` / red `removed` pills when a whole repeatable item was appended or deleted
+- **Text / textarea / color diff**: old value in grey strikethrough above the new value in dark text
+- **Image diff**: old thumbnail → arrow → new thumbnail (or `(cleared)` if the new value is empty)
+- **✎ button** → opens the edit popover for that specific field (uses `openFieldEditor`, see below)
+- **× button** → `revertField(sectionKey, fieldPath)` — reverts just that one field without touching the rest of the section. For scalar fields it writes `baseContent[section][field]` back into the content state; for `arrayKey.idx.subKey` paths it only rewrites that one sub-key on that one item; for whole-item paths (`arrayKey.idx` with no subKey, which means an item was added or removed) it restores the array to its baseline length.
 
-### Repeatable Group Add / Remove (cards in the sidebar)
+**Key helpers** powering the diff:
+- `changedFieldsOfSection(sectionKey)` walks the schema in source order and emits a `PendingFieldDiff[]` with `{ path, label, type, before, after, added?, removed?, itemLabel?, itemIndex? }` for every differing scalar + every differing sub-field of every repeatable item, stringifying booleans and numbers so the diff renderer can treat everything as text.
+- `firstChangedFieldOf(sectionKey)` (still used by the ↗ button) returns the first differing path for the scroll-into-view behavior.
 
-For every `data-ngf-group` the scraper discovers, the editor sidebar renders a "Sections with Cards" panel. Each group shows:
+**Discard flow and the refresh trap** — `revertSection`, `revertField`, and `revertAll` all route through a single `flushSaveOrClear(next)` helper:
+
+1. Cancel any pending debounced save (`scheduleSave` uses 800 ms debouncing — we don't want it writing the stale draft over our revert).
+2. Compare `stripEmpty(next)` against `stripEmpty(baseContent)`.
+3. If they match → `DELETE /api/portal/website` so `draft_content` goes `null` on the server and `has_draft` is false on next GET.
+4. Otherwise → `POST` the current draft immediately (no waiting for the debounce).
+
+This is critical: before `flushSaveOrClear`, clicking × then refreshing would bring the pending changes back because the debounced save never fired OR fired with an effectively-empty draft_content blob that still set `has_draft = true`. Any new revert logic must route through `flushSaveOrClear(next)` — never call `scheduleSave(next)` directly.
+
+### Repeatable Group Add / Remove / Reorder (cards in the sidebar)
+
+Surfaced via the Sections accordion (see next section). Each repeatable group shows:
 - Its label + current count vs `maxItems`
-- One row per existing item (click the row → `scrollToField` to that card's first field in the iframe)
-- × on each row → `removeGroupItem` (respects `minItems`)
-- "+ Add <itemLabel>" button → `addGroupItem` (respects `maxItems`)
+- One card per existing item with:
+  - Index label, text preview (from edited value or scraped `site_values`), image thumbnail
+  - One button per sub-field (Name / Price / Image / …) → `openFieldEditor` opens the edit popover pre-loaded with that sub-field's current value
+  - **↑ ↓** arrows → `moveGroupItem(sectionKey, arrayKey, from, to)` reorders the item (see bridge message above)
+  - **×** → `removeGroupItem` (with confirm, respects `minItems`)
+  - "Show in preview →" → `scrollToField` to that card in the iframe
+- "+ Add <itemLabel>" at the bottom → `addGroupItem` (respects `maxItems`)
 
-**Initial item count** — the editor's sidebar must match what the site is actually rendering, even when the DB has no saved content yet. The scraper counts the SSR-rendered item indices by scanning the HTML for `data-ngf-field="<group>.N.*"` matches, tracks `max(N)` across all matches, and returns `initialItemCount = max + 1` on the repeatable field. `applySchemaDefaults` then initializes the array to `Math.max(minItems, initialItemCount, 1)`. So when a site hardcodes 3 featured projects and the DB is empty, the sidebar shows 3 rows (all with `''` values so the site's `||` fallback keeps rendering the hardcoded names until the user edits one).
+**Initial item count** — the editor's sidebar must match what the site is actually rendering, even when the DB has no saved content yet. The scraper counts the SSR-rendered item indices by scanning the HTML for `data-ngf-field="<group>.N.*"` matches, tracks `max(N)` across all matches, and returns `initialItemCount = max + 1` on the repeatable field. `applySchemaDefaults` initializes the array to `Math.max(minItems, initialItemCount, 1)`. So when a site hardcodes 3 featured projects and the DB is empty, the sidebar shows 3 rows (all with `''` values so the site's `||` fallback keeps rendering the hardcoded names until the user edits one).
 
-State flow — all changes go through `content[section][arrayKey]` just like scalar edits:
-- **Add** appends `{ ...defaultItem }` to the array, schedules a save, and posts `addGroupItem` to the bridge. Bridge clones the group's last child, rewrites every descendant `data-ngf-field` to the new index. Text fields get blank textContent (so the `:empty::before` placeholder shows); image fields get a grey "Click to set image" SVG data-URI as both src and dataset.ngfDefault, so new slots don't just mirror the template's photo.
+**site_values** — `/api/portal/website` GET returns `site_values`, a flat dot-notation map of every `data-ngf-field`'s currently-rendered value on the live site (text for text/textarea, `src` for images). Derived by `scrapeFieldValuesFromHtml` on the same HTML the schema scraper uses — a depth-aware walker that finds each field's opening tag, counts matching same-name tags to locate the closing tag, then strips nested markup and decodes entities. This is purely for editor UI previews (sidebar row labels, diff "before" values for untouched fields). Never persisted to the DB.
+
+State flow — add and remove both go through `content[section][arrayKey]` just like scalar edits:
+- **Add** appends `{ ...defaultItem }` to the array, schedules a save, and posts `addGroupItem` to the bridge. Bridge clones the group's last child, rewrites every descendant `data-ngf-field` to the new index. Text fields get blank textContent (so the `:empty::before` placeholder shows); image fields get a grey "Click to set image" SVG data-URI as both `src` and `dataset.ngfDefault`, so new slots don't just mirror the template's photo.
 - **Remove** splices the item out of the array, schedules save, posts `removeGroupItem`. Bridge finds and removes the card whose descendants' fields start with `group.N.`, then shifts every later sibling's indices down by one.
+- **Reorder** splices from/to in the array, posts `moveGroupItem`. Bridge does `insertBefore` then rewrites every descendant data-ngf-field across all siblings so indices stay contiguous.
 
-No iframe reload is needed — the DOM stays in sync with state. After the next Publish, SSR re-renders the full set naturally from the published content.
+No iframe reload is needed for any of these — the DOM stays in sync with state. After the next Publish, SSR re-renders the full set naturally from the published content.
 
 Newly-added cards are click-to-edit the same way existing cards are — the bridge doesn't distinguish between server-rendered and cloned-in-edit-mode DOM nodes.
+
+### Sections Accordion (sidebar main panel)
+
+The sidebar's primary panel is a collapsible-per-section accordion. Every scraped section with at least one field that has a rendered value shows up as a row. Clicking the header toggles open/collapsed; default state is collapsed.
+
+Two modes controlled by a toggle at the top of the panel, persisted via `ngfEditorShowAllFields` in `localStorage`:
+
+- **Manage Sections** (default, toggle off) — only sections containing a repeatable group render. Inside each section, only the repeatable group is shown. Sections auto-open. Panel subtitle: *"Click text on the preview to edit it. Use this panel to add, remove, or reorder cards."* This is the intended workflow: scalar text/image edits happen by clicking on the iframe; the sidebar is for managing card lists.
+- **Show all fields** (toggle on) — every section plus every scalar field with its own Edit button. For clients who prefer to drive every edit from the sidebar rather than clicking in the iframe. Sections default collapsed.
+
+**`openFieldEditor(sectionKey, fieldPath, currentValue, label, fieldType)`** — the function the sidebar's Edit buttons call. Synthesizes the same `clickField` state a `fieldClick` postMessage from the iframe would create, captures `preEditValue` for Cancel-to-revert, centers the popover on the viewport, and also fires `scrollToField` so the iframe jumps to the same field as confirmation.
+
+**Empty-section / empty-field filtering** — `fieldHasValue(section, fieldKey, field)` returns true when the content state has a non-empty value OR `site_values` has a scraped value. `sectionHasContent` is the OR over all fields. Sections and fields that fail these checks are hidden entirely so the sidebar never shows mystery empty boxes (the Brand section's `sr-only` anchors used to create exactly these boxes — fixed by populating the anchor spans with their live value).
+
+**Resizable sidebar** — the right edge has a 8 px drag handle (six grip dots, blue on hover). Pointer-down sets `iframe.style.pointerEvents = 'none'` for the duration of the drag (otherwise the iframe swallows `pointermove` as soon as the cursor crosses in) and `body.style.userSelect = 'none'` (prevents default text selection). Width is clamped 260–720 px and persisted to `localStorage` under `ngfEditorSidebarWidth` so the preference survives reloads.
+
+### Edit Popover — Sizing
+
+The popover centers on the viewport at **640 px wide** (capped to `calc(100vw - 48px)` on narrow screens), with `maxHeight: calc(100vh - 64px)`. Three-part layout: sticky header (section label + field name + close), scrollable body, sticky footer (Cancel + Done). Mobile still renders as a bottom sheet. Text inputs are 16 px; the textarea starts at 8 rows / 12 rem min-height and **auto-grows** with content up to 60 vh (user can also drag the bottom-right corner for manual resize). Character counter below text and textarea inputs.
 
 ### Version History and Revert
 
@@ -725,6 +779,8 @@ No `experimental` or `serverActions` blocks — this was removed. The config onl
 - Do not omit the CSP `frame-ancestors` header from a client site — the portal editor's live preview will be blocked by the browser
 - Do not use `??` for client-site scalar fallbacks (`content['key'] ?? 'fallback'`) — published content may contain `''` which `??` doesn't catch. Always use `||` so empty strings fall through to the hardcoded default. Mirrors what the bridge does with its `data-ngf-default` cache.
 - Do not send filtered (empty-stripped) content in the editor's `contentUpdate` or `ngfReady` messages — the bridge needs `''` values to restore original text on revert. `stripEmpty` only belongs in `scheduleSave` so we don't persist `''` to the DB.
+- Do not call `scheduleSave(next)` from revert code paths (per-field ×, per-section ×, Discard all). Always route reverts through `flushSaveOrClear(next)` so the save fires immediately and — when the result matches baseline — issues a `DELETE /api/portal/website` that nulls `draft_content`. The 800 ms debounce otherwise loses the revert on refresh, and even if it lands it leaves an effectively-empty draft_content blob that keeps `has_draft = true`.
+- Do not return `user-select: none` or `pointer-events: none` from the sidebar resize-handle drag without restoring them on `pointerup`/`pointercancel`. Forgetting the restore freezes the iframe pointer or blocks page text selection permanently.
 - Do not write logic that trusts `client_id` from a request body or query param in portal routes — resolve the client from `clerk_user_id` instead (see the three Security Invariants above)
 - Do not ship a new portal API route without a `role` check inside the handler — the middleware's role guard only protects page paths, not API paths
 
