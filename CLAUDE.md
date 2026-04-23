@@ -146,7 +146,7 @@ All tables in `/prisma/schema.prisma`. Never edit the database directly.
 ### `client_configs` — key fields
 - `page_request`, `page_website`, `page_content`, `page_invoices` — portal page visibility toggles
 - `feature_blog`, `feature_products`, `feature_booking`, `feature_gallery` — feature toggles within pages
-- `site_url` — client's live website domain (e.g. `wrenchtime.com`, no protocol)
+- `site_url` — client's live website domain (e.g. `wrenchtime.com`, no protocol). **Must be unique per client.** The config PATCH handler normalizes (strips protocol/`www.`/trailing slash/case) and rejects duplicates with a 409; the duplicate is surfaced on `/admin/portal` as a red banner with deep links. If legacy duplicates exist, the public content API picks the most-recently-published match deterministically (by `published_at DESC, updated DESC`) and logs a warning.
 - `site_repo` — GitHub repo slug
 - `database_url` — external Neon DB URL for clients who have their own database (service requests)
 - `booking_url` — URL template with `[token]` placeholder used when approving service requests

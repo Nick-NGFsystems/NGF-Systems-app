@@ -89,48 +89,51 @@ export async function PATCH(request: Request, context: RouteContext) {
     const newSiteUrl =
       body.site_url !== undefined ? (body.site_url?.trim() || null) : undefined
 
-    // If site_url is being set to a non-null value, verify it's NGF-compatible
-    // AND that no OTHER client already owns this domain — duplicates lead to
-    // cross-contamination via the /api/public/content domain resolver.
-    if (newSiteUrl) {
+    // If site_url is being set to a non-null value, verify it's NGF-compatible.
+    // When the URL is CHANGING for this client, also snapshot and clear the
+    // existing content — otherwise editing a new site under the same client row
+    // silently bleeds fields from the previous site into the new one.
+    if (newSiteUrl !== undefined) {
       const existing = await db.clientConfig.findUnique({
         where: { client_id: clientId },
         select: { site_url: true },
       })
-      // Only re-verify if the URL is actually changing
-      if (existing?.site_url !== newSiteUrl) {
-        // Normalize for comparison (protocol, www, trailing slash, case)
-        const norm = (s: string) =>
-          s.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '').toLowerCase()
-        const newNorm = norm(newSiteUrl)
 
-        // Reject if another client already has this domain. Normalized compare
-        // in JS since Prisma can't express LOWER(TRIM(...)) matches cleanly.
-        const others = await db.clientConfig.findMany({
-          where: {
-            client_id: { not: clientId },
-            site_url:  { not: null },
-          },
-          select: { client_id: true, site_url: true },
-        })
-        const conflictRow = others.find(o => o.site_url && norm(o.site_url) === newNorm)
-        if (conflictRow) {
-          return NextResponse.json(
-            {
-              success: false,
-              error:   `Another client already owns this domain (${conflictRow.site_url}). Each domain can only belong to one client — remove it from the other client first, or use a different domain.`,
-              conflict: { other_client_id: conflictRow.client_id, site_url: conflictRow.site_url },
-            },
-            { status: 409 }
-          )
-        }
+      const urlIsChanging =
+        (existing?.site_url ?? null) !== (newSiteUrl ?? null)
 
+      if (newSiteUrl && urlIsChanging) {
         const verification = await verifyNgfSite(newSiteUrl)
         if (!verification.ok) {
           return NextResponse.json(
             { success: false, error: verification.error },
             { status: 422 }
           )
+        }
+      }
+
+      // On any site_url change (including to null), preserve the outgoing
+      // site's content in version history and then clear the live rows so
+      // the next site starts fresh. Prevents cross-site field pollution when
+      // one client row rotates through multiple domains.
+      if (urlIsChanging) {
+        const wc = await db.websiteContent.findUnique({ where: { client_id: clientId } })
+        if (wc && (wc.content || wc.draft_content)) {
+          try {
+            await db.websiteContentVersion.create({
+              data: {
+                client_id: clientId,
+                content:   (wc.draft_content ?? wc.content ?? {}) as object,
+                note:      `Snapshot from ${existing?.site_url ?? '(no site)'} before switching to ${newSiteUrl ?? '(no site)'}`,
+              },
+            })
+          } catch (snapErr) {
+            console.error('[config PATCH] snapshot-on-url-change failed (non-fatal)', snapErr)
+          }
+          await db.websiteContent.update({
+            where: { client_id: clientId },
+            data:  { content: {}, draft_content: null, schema_json: null },
+          })
         }
       }
     }
