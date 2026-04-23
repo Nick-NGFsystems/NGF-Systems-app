@@ -558,70 +558,100 @@ function EditPopover({
     onChange(v)
   }
 
+  // The popover now always centers on the viewport at a comfortable size
+  // instead of trying to anchor next to the clicked element (which forced
+  // a cramped 320 px box near the iframe edge). Mobile still gets a bottom
+  // sheet that fills the width.
   const wrapperStyle: React.CSSProperties = position.isSheet
-    ? { position: 'fixed', bottom: 0, left: 0, right: 0, borderRadius: '20px 20px 0 0', zIndex: 60 }
-    : { position: 'fixed', top: position.top, left: position.left, width: 320, borderRadius: 20, zIndex: 60 }
+    ? { position: 'fixed', bottom: 0, left: 0, right: 0, borderRadius: '20px 20px 0 0', zIndex: 60, maxHeight: '90vh' }
+    : {
+        position:  'fixed',
+        top:       '50%',
+        left:      '50%',
+        transform: 'translate(-50%, -50%)',
+        width:     'min(640px, calc(100vw - 48px))',
+        maxHeight: 'calc(100vh - 64px)',
+        borderRadius: 20,
+        zIndex:    60,
+      }
+
+  // Textarea auto-grows with content, capped at ~60 vh so the window
+  // doesn't push off-screen for very long passages.
+  const taRef = useRef<HTMLTextAreaElement | null>(null)
+  useEffect(() => {
+    const el = taRef.current
+    if (el && field.fieldType === 'textarea') {
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.6)) + 'px'
+    }
+  }, [value, field.fieldType])
 
   return (
     <>
       {/* Scrim */}
       <div
         className="fixed inset-0 z-50"
-        style={{ background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(1px)' }}
+        style={{ background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(2px)' }}
         onClick={onCancel}
       />
 
       {/* Card */}
-      <div style={wrapperStyle} className="bg-white shadow-2xl border border-black/8 overflow-hidden">
+      <div style={wrapperStyle} className="bg-white shadow-2xl border border-black/8 overflow-hidden flex flex-col">
         {/* Handle (sheet only) */}
         {position.isSheet && (
-          <div className="flex justify-center pt-3 pb-1">
+          <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
             <div className="w-10 h-1 rounded-full bg-gray-200" />
           </div>
         )}
 
-        <div className="px-5 pt-4 pb-5 space-y-3">
-          {/* Header */}
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">
-                {humanize(field.section)}
-              </p>
-              <p className="text-sm font-semibold text-gray-900 mt-0.5">{field.label}</p>
-            </div>
-            <button
-              onClick={onCancel}
-              className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 text-lg leading-none flex-shrink-0 transition-colors"
-            >
-              ×
-            </button>
+        {/* Header */}
+        <div className="px-6 pt-5 pb-3 flex items-start justify-between gap-3 flex-shrink-0 border-b border-gray-100">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+              {humanize(field.section)}
+            </p>
+            <p className="text-lg font-semibold text-gray-900 mt-0.5 truncate">{field.label}</p>
           </div>
+          <button
+            onClick={onCancel}
+            aria-label="Close"
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 text-xl leading-none flex-shrink-0 transition-colors"
+          >
+            ×
+          </button>
+        </div>
 
-          {/* Input */}
+        {/* Body (scrollable if content is very long) */}
+        <div className="px-6 py-4 space-y-3 overflow-y-auto flex-1 min-h-0">
           {field.fieldType === 'color' ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <input
                 type="color"
                 value={value || '#3B82F6'}
                 onChange={e => handleChange(e.target.value)}
-                className="w-10 h-10 rounded-xl border border-gray-200 cursor-pointer p-0.5 bg-transparent"
+                className="w-14 h-14 rounded-xl border border-gray-200 cursor-pointer p-0.5 bg-transparent"
               />
               <input
                 type="text"
                 value={value || ''}
                 onChange={e => handleChange(e.target.value)}
-                className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-base font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           ) : field.fieldType === 'image' ? (
             <ImageField value={value} onChange={handleChange} inputRef={inputRef as React.Ref<HTMLInputElement>} />
           ) : field.fieldType === 'textarea' ? (
             <textarea
-              ref={inputRef as React.Ref<HTMLTextAreaElement>}
+              ref={(el) => {
+                taRef.current = el
+                ;(inputRef as React.MutableRefObject<HTMLTextAreaElement | HTMLInputElement | null>).current = el
+              }}
               value={value || ''}
-              rows={position.isSheet ? 5 : 4}
+              rows={8}
               onChange={e => handleChange(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{ minHeight: '12rem' }}
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-[15px] leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+              placeholder="Type here…"
             />
           ) : (
             <input
@@ -630,25 +660,31 @@ function EditPopover({
               value={value || ''}
               onChange={e => handleChange(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') onDone() }}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Type here…"
             />
           )}
 
-          {/* Actions */}
-          <div className="flex gap-2 pt-1">
-            <button
-              onClick={onCancel}
-              className="flex-1 h-10 rounded-xl text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={onDone}
-              className="flex-1 h-10 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
-            >
-              Done
-            </button>
-          </div>
+          {/* Character count for text-y fields */}
+          {(field.fieldType === 'text' || field.fieldType === 'textarea') && (
+            <p className="text-[11px] text-gray-400 text-right">{(value ?? '').length} characters</p>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="px-6 py-4 flex gap-3 flex-shrink-0 border-t border-gray-100 bg-gray-50/50">
+          <button
+            onClick={onCancel}
+            className="flex-1 h-11 rounded-xl text-sm font-medium text-gray-700 bg-white border border-gray-200 hover:bg-gray-100 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onDone}
+            className="flex-1 h-11 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+          >
+            Done
+          </button>
         </div>
       </div>
     </>
