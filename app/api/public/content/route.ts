@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { flattenContent, SiteContent } from '@/lib/website-schema'
 
 const CORS = {
-  'Access-Control-Allow-Origin':  '*',
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 }
@@ -12,86 +11,93 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/public/content?domain=<domain>  OR  ?client_id=<id>
-//
-// Returns published website content. Two response shapes:
-//
-//   Default (no `?shape=flat`):
-//     { content: { hero: { headline: '...' }, services: { items: [...] } }, client_id }
-//
-//   With `?shape=flat`:
-//     { content: { 'hero.headline': '...', 'services.items.0.name': '...' }, client_id }
-//
-// Client sites can pick whichever shape is easier to consume. Full CORS; no auth.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Flatten a nested object to dot-notation key-value pairs.
+ * e.g. { hero: { eyebrow: 'X', headline: 'Y' } } → { 'hero.eyebrow': 'X', 'hero.headline': 'Y' }
+ * Arrays are flattened as 'section.0.field', 'section.1.field', etc.
+ */
+function flatten(obj: Record<string, unknown>, prefix = ''): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const [key, value] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${key}` : key
+    if (typeof value === 'string') {
+      result[path] = value
+    } else if (Array.isArray(value)) {
+      value.forEach((item, i) => {
+        if (typeof item === 'string') {
+          result[`${path}.${i}`] = item
+        } else if (typeof item === 'object' && item !== null) {
+          Object.assign(result, flatten(item as Record<string, unknown>, `${path}.${i}`))
+        }
+      })
+    } else if (typeof value === 'object' && value !== null) {
+      Object.assign(result, flatten(value as Record<string, unknown>, path))
+    }
+  }
+  return result
+}
 
+/**
+ * GET /api/public/content?domain=<domain>
+ *
+ * Returns published website content as flat dot-notation key-value pairs.
+ * Used by custom client sites (e.g. WrenchTime Cycles) to fetch their content
+ * from the NGF portal system.
+ */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const rawDomain  = searchParams.get('domain')
-  const rawClientId = searchParams.get('client_id')
-  const shape      = searchParams.get('shape') // 'flat' | null
+  const rawDomain = searchParams.get('domain')
 
-  if (!rawDomain && !rawClientId) {
-    return NextResponse.json(
-      { error: 'domain or client_id query param required' },
-      { status: 400, headers: CORS },
-    )
+  if (!rawDomain) {
+    return NextResponse.json({ error: 'domain query param required' }, { status: 400, headers: CORS })
   }
 
-  try {
-    let clientId: string | null = rawClientId
+  const normalized = decodeURIComponent(rawDomain)
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/$/, '')
+    .toLowerCase()
 
-    if (!clientId && rawDomain) {
-      const normalized = decodeURIComponent(rawDomain)
+  try {
+    // Look up client by matching site_url
+    const clients = await db.client.findMany({
+      where: { config: { isNot: null } },
+      select: {
+        id: true,
+        config: { select: { site_url: true } },
+      },
+    })
+
+    const matchingClients = clients.filter((c) => {
+      if (!c.config?.site_url) return false
+      const siteNorm = c.config.site_url
         .replace(/^https?:\/\//, '')
         .replace(/^www\./, '')
         .replace(/\/$/, '')
         .toLowerCase()
-
-      const clients = await db.client.findMany({
-        where:  { config: { isNot: null } },
-        select: { id: true, config: { select: { site_url: true } } },
-      })
-
-      const match = clients.find((c) => {
-        const url = c.config?.site_url
-        if (!url) return false
-        const n = url
-          .replace(/^https?:\/\//, '')
-          .replace(/^www\./, '')
-          .replace(/\/$/, '')
-          .toLowerCase()
-        return n === normalized
-      })
-
-      clientId = match?.id ?? null
-    }
-
-    if (!clientId) {
-      // Unknown domain → empty content so the site falls through to defaults.
-      return NextResponse.json({ content: shape === 'flat' ? {} : {} }, { headers: CORS })
-    }
-
-    const row = await db.websiteContent.findUnique({
-      where:  { client_id: clientId },
-      select: { content: true, published_at: true, client_id: true },
+      return siteNorm === normalized
     })
 
-    const nested = (row?.content ?? {}) as SiteContent
+    if (matchingClients.length === 0) {
+      // Return empty content rather than 404 — site uses defaults when nothing is saved
+      return NextResponse.json({ content: {} }, { headers: CORS })
+    }
 
-    const payload = shape === 'flat'
-      ? flattenContent(nested)
-      : nested
+    // When multiple clients share the same domain (e.g. admin record + portal user),
+    // find the one that actually has published websiteContent.
+    const matchingIds = matchingClients.map((c) => c.id)
+    const websiteContent = await db.websiteContent.findFirst({
+      where: { client_id: { in: matchingIds } },
+    })
 
-    return NextResponse.json(
-      {
-        content:      payload,
-        client_id:    clientId,
-        published_at: row?.published_at?.toISOString() ?? null,
-      },
-      { headers: CORS },
-    )
+    if (!websiteContent) {
+      return NextResponse.json({ content: {}, client_id: matchingClients[0].id }, { headers: CORS })
+    }
+
+    const raw = (websiteContent.content ?? {}) as Record<string, unknown>
+    const content = flatten(raw)
+
+    return NextResponse.json({ content, client_id: websiteContent.client_id }, { headers: CORS })
   } catch (err) {
     console.error('[public/content]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: CORS })

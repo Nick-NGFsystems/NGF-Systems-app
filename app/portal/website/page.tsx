@@ -1,627 +1,738 @@
 'use client'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import Link from 'next/link'
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Types mirror lib/website-schema.ts (kept in sync by hand; the schema is
-// delivered over the wire from GET /api/portal/website).
-// ─────────────────────────────────────────────────────────────────────────────
-
-type FieldType = 'text' | 'textarea' | 'color' | 'image' | 'url' | 'email' | 'phone'
+type FieldType = 'text' | 'textarea' | 'image' | 'color' | 'toggle'
 
 interface LeafField {
-  type:         FieldType
-  label:        string
+  type: FieldType
+  label: string
   placeholder?: string
-  help?:        string
-  default?:     string
+  rows?: number
+  default?: string
 }
 
 interface RepeatableField {
-  type:        'repeatable'
-  label:       string
-  itemLabel:   string
-  minItems?:   number
-  maxItems?:   number
-  fields:      Record<string, LeafField>
+  type: 'repeatable'
+  label: string
+  itemLabel: string
+  minItems?: number
+  maxItems?: number
+  fields: Record<string, LeafField>
   defaultItem: Record<string, string>
 }
 
 type FieldDefinition = LeafField | RepeatableField
 
 interface SectionSchema {
-  label:        string
-  description?: string
-  fields:       Record<string, FieldDefinition>
+  label: string
+  fields: Record<string, FieldDefinition>
 }
 
-interface SiteSchema {
+interface TemplateSchema {
   sections: Record<string, SectionSchema>
 }
 
-type SectionContent = Record<string, string | Array<Record<string, string>>>
-type SiteContent    = Record<string, SectionContent>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ContentBlock = Record<string, any>
 
-// ─────────────────────────────────────────────────────────────────────────────
-
-function normalizeUrl(u: string): string {
-  return u.startsWith('http') ? u : `https://${u}`
+interface ClickField {
+  section: string
+  field: string
+  value: string
+  label: string
+  fieldType: FieldType
+  elementRect?: { top: number; left: number; bottom: number; right: number; width: number; height: number }
 }
 
-// Deep clone for draft safety.
-function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v)) as T
+interface PopoverPosition {
+  top: number
+  left: number
+  isSheet: boolean
 }
+
+const ADMIN_KEYS = new Set(['_meta', '_schema'])
+
+function humanize(key: string): string {
+  return key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).replace(/\s+/g, ' ').trim()
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function applySchemaDefaults(content: ContentBlock, schema: TemplateSchema): ContentBlock {
+  const result: ContentBlock = {}
+  for (const [sectionKey, section] of Object.entries(schema.sections)) {
+    const existing = content[sectionKey] ?? {}
+    const sectionData: ContentBlock = {}
+    for (const [fieldKey, field] of Object.entries(section.fields)) {
+      if (field.type === 'repeatable') {
+        sectionData[fieldKey] = Array.isArray(existing[fieldKey]) && existing[fieldKey].length > 0
+          ? existing[fieldKey]
+          : Array.from({ length: field.minItems ?? 1 }, () => ({ ...field.defaultItem }))
+      } else {
+        sectionData[fieldKey] = existing[fieldKey] ?? field.default ?? ''
+      }
+    }
+    result[sectionKey] = sectionData
+  }
+  for (const [k, v] of Object.entries(content)) {
+    if (!(k in result) && !ADMIN_KEYS.has(k)) result[k] = v
+  }
+  return result
+}
+
+function getChangedSections(
+  current: ContentBlock,
+  published: ContentBlock,
+  schema: TemplateSchema | null
+): { sectionKey: string; label: string; fieldCount: number }[] {
+  if (!schema) return []
+  const result = []
+  for (const [key, section] of Object.entries(schema.sections)) {
+    const currStr = JSON.stringify(current[key] ?? {})
+    const pubStr  = JSON.stringify(published[key] ?? {})
+    if (currStr === pubStr) continue
+    let fieldCount = 0
+    const currSection = current[key] ?? {}
+    const pubSection  = published[key] ?? {}
+    for (const fieldKey of Object.keys(section.fields)) {
+      if (JSON.stringify(currSection[fieldKey]) !== JSON.stringify(pubSection[fieldKey])) fieldCount++
+    }
+    result.push({ sectionKey: key, label: section.label, fieldCount })
+  }
+  return result
+}
+
+function resolveFieldType(schema: TemplateSchema | null, section: string, field: string): FieldType {
+  if (!schema) return 'textarea'
+  const sectionSchema = schema.sections[section]
+  if (!sectionSchema) return 'textarea'
+  const parts = field.split('.')
+  // Leaf field
+  const directField = sectionSchema.fields[field]
+  if (directField && directField.type !== 'repeatable') return directField.type as FieldType
+  // Repeatable item field: e.g. "items.0.title" → look up "items" repeatable, sub-field "title"
+  const arrayKey = parts[0]
+  const arrayField = sectionSchema.fields[arrayKey]
+  if (arrayField?.type === 'repeatable' && parts.length === 3) {
+    const subField = arrayField.fields[parts[2]]
+    if (subField) return subField.type
+  }
+  return 'textarea'
+}
+
+function computePopoverPosition(
+  iframeRect: DOMRect,
+  elementRect: ClickField['elementRect'],
+  popoverW = 320,
+  popoverH = 240
+): PopoverPosition {
+  if (typeof window === 'undefined') return { top: 0, left: 0, isSheet: false }
+
+  // Mobile: always bottom sheet
+  if (window.innerWidth < 640 || !elementRect) {
+    return { top: 0, left: 0, isSheet: true }
+  }
+
+  const elemBottom = iframeRect.top  + (elementRect?.bottom ?? 0)
+  const elemTop    = iframeRect.top  + (elementRect?.top    ?? 0)
+  const elemCx     = iframeRect.left + (elementRect?.left   ?? 0) + (elementRect?.width ?? 0) / 2
+
+  let top  = elemBottom + 10
+  let left = elemCx - popoverW / 2
+
+  // Flip above if not enough room below
+  if (top + popoverH > window.innerHeight - 16) top = elemTop - popoverH - 10
+
+  // Clamp
+  top  = Math.max(60, Math.min(top,  window.innerHeight - popoverH - 16))
+  left = Math.max(16, Math.min(left, window.innerWidth  - popoverW - 16))
+
+  return { top, left, isSheet: false }
+}
+
+// ── Edit Popover ──────────────────────────────────────────────────────────────
+
+function EditPopover({
+  field, position, onChange, onDone, onCancel,
+}: {
+  field: ClickField
+  position: PopoverPosition
+  onChange: (v: string) => void
+  onDone: () => void
+  onCancel: () => void
+}) {
+  const [value, setValue] = useState(field.value)
+  const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null)
+
+  useEffect(() => {
+    setValue(field.value)
+    setTimeout(() => inputRef.current?.focus(), 60)
+  }, [field.field, field.section])
+
+  const handleChange = (v: string) => {
+    setValue(v)
+    onChange(v)
+  }
+
+  const wrapperStyle: React.CSSProperties = position.isSheet
+    ? { position: 'fixed', bottom: 0, left: 0, right: 0, borderRadius: '20px 20px 0 0', zIndex: 60 }
+    : { position: 'fixed', top: position.top, left: position.left, width: 320, borderRadius: 20, zIndex: 60 }
+
+  return (
+    <>
+      {/* Scrim */}
+      <div
+        className="fixed inset-0 z-50"
+        style={{ background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(1px)' }}
+        onClick={onCancel}
+      />
+
+      {/* Card */}
+      <div style={wrapperStyle} className="bg-white shadow-2xl border border-black/8 overflow-hidden">
+        {/* Handle (sheet only) */}
+        {position.isSheet && (
+          <div className="flex justify-center pt-3 pb-1">
+            <div className="w-10 h-1 rounded-full bg-gray-200" />
+          </div>
+        )}
+
+        <div className="px-5 pt-4 pb-5 space-y-3">
+          {/* Header */}
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">
+                {humanize(field.section)}
+              </p>
+              <p className="text-sm font-semibold text-gray-900 mt-0.5">{field.label}</p>
+            </div>
+            <button
+              onClick={onCancel}
+              className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 text-lg leading-none flex-shrink-0 transition-colors"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Input */}
+          {field.fieldType === 'color' ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={value || '#3B82F6'}
+                onChange={e => handleChange(e.target.value)}
+                className="w-10 h-10 rounded-xl border border-gray-200 cursor-pointer p-0.5 bg-transparent"
+              />
+              <input
+                type="text"
+                value={value || ''}
+                onChange={e => handleChange(e.target.value)}
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          ) : field.fieldType === 'image' ? (
+            <div className="space-y-2">
+              <input
+                ref={inputRef as React.Ref<HTMLInputElement>}
+                type="text"
+                value={value || ''}
+                placeholder="https://…"
+                onChange={e => handleChange(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {value && (
+                <img
+                  src={value} alt=""
+                  className="w-full h-24 object-cover rounded-xl bg-gray-100"
+                  onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                />
+              )}
+            </div>
+          ) : field.fieldType === 'textarea' ? (
+            <textarea
+              ref={inputRef as React.Ref<HTMLTextAreaElement>}
+              value={value || ''}
+              rows={position.isSheet ? 5 : 4}
+              onChange={e => handleChange(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          ) : (
+            <input
+              ref={inputRef as React.Ref<HTMLInputElement>}
+              type="text"
+              value={value || ''}
+              onChange={e => handleChange(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') onDone() }}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={onCancel}
+              className="flex-1 h-10 rounded-xl text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onDone}
+              className="flex-1 h-10 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ── Main editor ───────────────────────────────────────────────────────────────
 
 export default function WebsiteEditorPage() {
-  const [schema,           setSchema]           = useState<SiteSchema | null>(null)
-  const [content,          setContent]          = useState<SiteContent>({})
-  const [publishedContent, setPublishedContent] = useState<SiteContent>({})
-  const [siteUrl,          setSiteUrl]          = useState<string | null>(null)
+  const iframeRef   = useRef<HTMLIFrameElement>(null)
+  const saveTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const previewTimer= useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const [content,          setContent]          = useState<ContentBlock>({})
+  const [publishedContent, setPublishedContent] = useState<ContentBlock>({})
+  const [schema,           setSchema]           = useState<TemplateSchema | null>(null)
+  const [saveStatus,       setSaveStatus]       = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [pushStatus,       setPushStatus]       = useState<'idle' | 'pushing' | 'published' | 'error'>('idle')
+  const [siteUrl,          setSiteUrl]          = useState('')
   const [loading,          setLoading]          = useState(true)
   const [hasDraft,         setHasDraft]         = useState(false)
   const [publishedAt,      setPublishedAt]      = useState<string | null>(null)
+  const [changesOpen,      setChangesOpen]      = useState(false)
 
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const [pushStatus, setPushStatus] = useState<'idle' | 'pushing' | 'published' | 'error'>('idle')
-  const [activeSection, setActiveSection] = useState<string | null>(null)
+  const [clickField,    setClickField]    = useState<ClickField | null>(null)
+  const [popoverPos,    setPopoverPos]    = useState<PopoverPosition>({ top: 0, left: 0, isSheet: false })
 
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Published content with schema defaults applied — used as the baseline for
+  // "pending changes" comparison. This prevents schema-initialized empty strings
+  // from showing as changes when nothing has actually been edited yet.
+  const baseContent = useMemo<ContentBlock>(
+    () => schema ? applySchemaDefaults(publishedContent, schema) : publishedContent,
+    [publishedContent, schema]
+  )
 
-  // Load once
-  useEffect(() => {
-    (async () => {
-      try {
-        const res  = await fetch('/api/portal/website', { cache: 'no-store' })
-        const data = await res.json()
-        if (data?.schema) setSchema(data.schema as SiteSchema)
-        if (data?.content) setContent(data.content as SiteContent)
-        if (data?.published_content) setPublishedContent(data.published_content as SiteContent)
-        setHasDraft(!!data?.has_draft)
-        setSiteUrl(data?.site_url ?? null)
-        setPublishedAt(data?.published_at ?? null)
-
-        // Default-open the first section
-        if (data?.schema?.sections) {
-          const firstKey = Object.keys(data.schema.sections)[0]
-          if (firstKey) setActiveSection(firstKey)
-        }
-      } catch (err) {
-        console.error('[editor] load failed', err)
-      } finally {
-        setLoading(false)
-      }
-    })()
+  const pushToPreview = useCallback((c: ContentBlock) => {
+    if (previewTimer.current) clearTimeout(previewTimer.current)
+    previewTimer.current = setTimeout(() => {
+      iframeRef.current?.contentWindow?.postMessage({ type: 'contentUpdate', content: c }, '*')
+    }, 120)
   }, [])
 
-  // Debounced draft save
-  const scheduleSave = useCallback((next: SiteContent) => {
+  const scheduleSave = useCallback((c: ContentBlock) => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     setSaveStatus('saving')
     saveTimer.current = setTimeout(async () => {
       try {
         const res = await fetch('/api/portal/website', {
-          method:  'POST',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ content: next }),
+          body: JSON.stringify({ content: c }),
         })
-        if (res.ok) {
-          setHasDraft(true)
-          setSaveStatus('saved')
-          setTimeout(() => setSaveStatus('idle'), 1500)
-        } else {
-          setSaveStatus('error')
-          setTimeout(() => setSaveStatus('idle'), 3000)
-        }
-      } catch {
-        setSaveStatus('error')
-        setTimeout(() => setSaveStatus('idle'), 3000)
-      }
-    }, 700)
+        if (res.ok) { setHasDraft(true); setSaveStatus('saved') } else { setSaveStatus('error') }
+        setTimeout(() => setSaveStatus('idle'), 2000)
+      } catch { setSaveStatus('error'); setTimeout(() => setSaveStatus('idle'), 2000) }
+    }, 800)
   }, [])
 
-  // ── Mutators ─────────────────────────────────────────────────────────────
-
-  const setField = useCallback((sectionKey: string, fieldKey: string, value: string) => {
+  const updateField = useCallback((sectionKey: string, fieldPath: string, value: string | boolean) => {
     setContent(prev => {
-      const section = { ...(prev[sectionKey] ?? {}) }
-      section[fieldKey] = value
-      const next = { ...prev, [sectionKey]: section }
+      const sectionData = prev[sectionKey] ?? {}
+      let updated: ContentBlock
+
+      if (fieldPath.includes('.')) {
+        const parts = fieldPath.split('.')
+        if (parts.length === 3) {
+          const [arrayKey, idxStr, subKey] = parts
+          const arr = Array.isArray(sectionData[arrayKey]) ? [...sectionData[arrayKey]] : []
+          const idx = parseInt(idxStr)
+          arr[idx] = { ...arr[idx], [subKey]: value }
+          updated = { ...sectionData, [arrayKey]: arr }
+        } else {
+          updated = { ...sectionData, [fieldPath]: value }
+        }
+      } else {
+        updated = { ...sectionData, [fieldPath]: value }
+      }
+
+      const next = { ...prev, [sectionKey]: updated }
+      pushToPreview(next)
       scheduleSave(next)
       return next
     })
-  }, [scheduleSave])
-
-  const setItemField = useCallback((sectionKey: string, fieldKey: string, index: number, subKey: string, value: string) => {
-    setContent(prev => {
-      const section = { ...(prev[sectionKey] ?? {}) }
-      const arr = Array.isArray(section[fieldKey]) ? [...(section[fieldKey] as Array<Record<string, string>>)] : []
-      arr[index] = { ...(arr[index] ?? {}), [subKey]: value }
-      section[fieldKey] = arr
-      const next = { ...prev, [sectionKey]: section }
-      scheduleSave(next)
-      return next
-    })
-  }, [scheduleSave])
-
-  const addItem = useCallback((sectionKey: string, fieldKey: string, field: RepeatableField) => {
-    setContent(prev => {
-      const section = { ...(prev[sectionKey] ?? {}) }
-      const arr = Array.isArray(section[fieldKey]) ? [...(section[fieldKey] as Array<Record<string, string>>)] : []
-      if (field.maxItems && arr.length >= field.maxItems) return prev
-      arr.push(clone(field.defaultItem))
-      section[fieldKey] = arr
-      const next = { ...prev, [sectionKey]: section }
-      scheduleSave(next)
-      return next
-    })
-  }, [scheduleSave])
-
-  const removeItem = useCallback((sectionKey: string, fieldKey: string, field: RepeatableField, index: number) => {
-    setContent(prev => {
-      const section = { ...(prev[sectionKey] ?? {}) }
-      const arr = Array.isArray(section[fieldKey]) ? [...(section[fieldKey] as Array<Record<string, string>>)] : []
-      if (field.minItems && arr.length <= field.minItems) return prev
-      arr.splice(index, 1)
-      section[fieldKey] = arr
-      const next = { ...prev, [sectionKey]: section }
-      scheduleSave(next)
-      return next
-    })
-  }, [scheduleSave])
-
-  const moveItem = useCallback((sectionKey: string, fieldKey: string, from: number, to: number) => {
-    setContent(prev => {
-      const section = { ...(prev[sectionKey] ?? {}) }
-      const arr = Array.isArray(section[fieldKey]) ? [...(section[fieldKey] as Array<Record<string, string>>)] : []
-      if (to < 0 || to >= arr.length) return prev
-      const [item] = arr.splice(from, 1)
-      arr.splice(to, 0, item)
-      section[fieldKey] = arr
-      const next = { ...prev, [sectionKey]: section }
-      scheduleSave(next)
-      return next
-    })
-  }, [scheduleSave])
+  }, [pushToPreview, scheduleSave])
 
   const revertSection = useCallback((sectionKey: string) => {
     setContent(prev => {
-      const next = { ...prev, [sectionKey]: clone(publishedContent[sectionKey] ?? {}) }
+      const next = { ...prev, [sectionKey]: baseContent[sectionKey] ?? {} }
+      pushToPreview(next)
       scheduleSave(next)
       return next
     })
-  }, [publishedContent, scheduleSave])
+  }, [baseContent, pushToPreview, scheduleSave])
 
   const revertAll = useCallback(() => {
-    if (!confirm('Discard all unpublished changes? This can not be undone.')) return
-    const next = clone(publishedContent)
-    setContent(next)
-    scheduleSave(next)
-  }, [publishedContent, scheduleSave])
+    setContent(() => {
+      const next = { ...baseContent }
+      pushToPreview(next)
+      scheduleSave(next)
+      return next
+    })
+  }, [baseContent, pushToPreview, scheduleSave])
 
-  // ── Publish ──────────────────────────────────────────────────────────────
+  const reloadPreview = useCallback(() => {
+    if (iframeRef.current) iframeRef.current.src = iframeRef.current.src
+  }, [])
 
-  const publish = useCallback(async () => {
+  const push = useCallback(async () => {
     setPushStatus('pushing')
     try {
-      // Force-save current draft first (don't race the debounce).
       const saveRes = await fetch('/api/portal/website', {
-        method:  'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ content }),
+        body: JSON.stringify({ content }),
       })
-      if (!saveRes.ok) throw new Error('save failed')
+      if (!saveRes.ok) { setPushStatus('error'); setTimeout(() => setPushStatus('idle'), 3000); return }
 
       const res = await fetch('/api/portal/website/push', { method: 'POST' })
-      if (!res.ok) throw new Error('push failed')
-
-      setPublishedContent(content)
-      setHasDraft(false)
-      setPublishedAt(new Date().toISOString())
-      setPushStatus('published')
-      setTimeout(() => setPushStatus('idle'), 2500)
-    } catch (err) {
-      console.error(err)
-      setPushStatus('error')
+      if (res.ok) {
+        setHasDraft(false)
+        setPublishedContent(content)
+        setPublishedAt(new Date().toISOString())
+        setPushStatus('published')
+        setTimeout(() => reloadPreview(), 1200)
+      } else { setPushStatus('error') }
       setTimeout(() => setPushStatus('idle'), 3000)
-    }
-  }, [content])
+    } catch { setPushStatus('error'); setTimeout(() => setPushStatus('idle'), 3000) }
+  }, [content, reloadPreview])
 
-  // ── Derived ──────────────────────────────────────────────────────────────
+  // Load on mount
+  useEffect(() => {
+    fetch('/api/portal/website').then(r => r.json()).then(data => {
+      if (data?.schema) {
+        setSchema(data.schema as TemplateSchema);
+        (window as Window & { __schema?: TemplateSchema }).__schema = data.schema
+        const withDefaults = applySchemaDefaults(data.content ?? {}, data.schema)
+        setContent(withDefaults)
+        pushToPreview(withDefaults)
+      } else if (data?.content) {
+        setContent(data.content as ContentBlock)
+        pushToPreview(data.content as ContentBlock)
+      }
+      setPublishedContent((data?.published_content ?? {}) as ContentBlock)
+      if (data?.has_draft)    setHasDraft(true)
+      if (data?.site_url)     setSiteUrl(data.site_url as string)
+      if (data?.published_at) setPublishedAt(data.published_at as string)
+    }).catch(() => {}).finally(() => setLoading(false))
+  }, [])
 
-  const changedSections = useMemo(() => {
-    if (!schema) return [] as Array<{ sectionKey: string; label: string }>
-    const out: Array<{ sectionKey: string; label: string }> = []
-    for (const sectionKey of Object.keys(schema.sections)) {
-      const a = JSON.stringify(content[sectionKey] ?? {})
-      const b = JSON.stringify(publishedContent[sectionKey] ?? {})
-      if (a !== b) {
-        out.push({ sectionKey, label: schema.sections[sectionKey].label })
+  // Listen for iframe messages
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'ngfReady') {
+        iframeRef.current?.contentWindow?.postMessage({ type: 'setEditMode', enabled: true }, '*')
+        setTimeout(() => {
+          iframeRef.current?.contentWindow?.postMessage({ type: 'contentUpdate', content }, '*')
+        }, 50)
+      }
+
+      if (e.data?.type === 'fieldClick') {
+        const { section, field, currentValue, elementRect } = e.data as {
+          section: string; field: string; currentValue: string
+          elementRect?: ClickField['elementRect']
+        }
+        const fieldPart  = field.split('.').pop() || field
+        const fieldType  = resolveFieldType(schema, section, field)
+        const iframeRect = iframeRef.current?.getBoundingClientRect() ?? new DOMRect()
+        const pos        = computePopoverPosition(iframeRect, elementRect)
+
+        setClickField({ section, field, value: currentValue, label: humanize(fieldPart), fieldType, elementRect })
+        setPopoverPos(pos)
       }
     }
-    return out
-  }, [content, publishedContent, schema])
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [content, schema])
 
-  // ── Render helpers ───────────────────────────────────────────────────────
+  // ── States ────────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
-      <div className="flex h-[calc(100vh-4rem)] items-center justify-center">
+      <div className="flex h-screen items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-slate-900 border-t-transparent" />
-          <p className="text-sm text-gray-500">Loading editor…</p>
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-gray-500">Loading your website…</p>
         </div>
       </div>
     )
   }
 
-  if (!schema) {
+  if (!siteUrl) {
     return (
-      <div className="flex h-[calc(100vh-4rem)] items-center justify-center p-6">
-        <div className="max-w-md rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900">Editor unavailable</h2>
-          <p className="mt-2 text-sm text-gray-500">
-            We couldn&apos;t load your schema. Refresh the page, or contact support if this keeps happening.
-          </p>
+      <div className="flex h-screen items-center justify-center bg-gray-50 p-6">
+        <div className="max-w-sm w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+          <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
+            <svg className="w-7 h-7 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+            </svg>
+          </div>
+          <h2 className="text-base font-semibold text-gray-900 mb-2">Your website is coming soon</h2>
+          <p className="text-sm text-gray-400 leading-relaxed">Once your site is live, you&apos;ll be able to edit content directly from here.</p>
         </div>
       </div>
     )
   }
 
-  const sectionKeys = Object.keys(schema.sections)
-  const activeSchema = activeSection ? schema.sections[activeSection] : null
-  const activeContent = activeSection ? (content[activeSection] ?? {}) : {}
-  const isChanged = (sectionKey: string) => changedSections.some(s => s.sectionKey === sectionKey)
+  const normalizedSiteUrl = siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`
+  const changedSections   = getChangedSections(content, baseContent, schema)
+  const totalChanges      = changedSections.length
 
   const publishLabel =
-    pushStatus === 'pushing'   ? 'Publishing…' :
-    pushStatus === 'published' ? 'Published' :
-    pushStatus === 'error'     ? 'Error — retry' :
-    hasDraft                   ? 'Publish changes' :
-    'Up to date'
+    pushStatus === 'pushing'   ? 'Publishing…'
+    : pushStatus === 'published' ? '✓ Published'
+    : pushStatus === 'error'     ? 'Error — retry'
+    : hasDraft                   ? 'Publish Changes'
+    : 'Up to date'
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] overflow-hidden bg-gray-50">
+    <div className="flex h-screen overflow-hidden bg-gray-100">
 
-      {/* Left: section list + publish */}
-      <aside className="flex w-60 flex-shrink-0 flex-col border-r border-gray-200 bg-white">
-        <div className="border-b border-gray-100 p-4">
-          <button
-            type="button"
-            onClick={publish}
-            disabled={!hasDraft || pushStatus === 'pushing'}
-            className={
-              hasDraft && pushStatus === 'idle'
-                ? 'w-full rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800'
-                : pushStatus === 'pushing'
-                ? 'w-full cursor-wait rounded-lg bg-slate-200 px-3 py-2 text-sm font-semibold text-slate-500'
-                : pushStatus === 'published'
-                ? 'w-full rounded-lg bg-emerald-100 px-3 py-2 text-sm font-semibold text-emerald-800'
-                : pushStatus === 'error'
-                ? 'w-full rounded-lg bg-red-100 px-3 py-2 text-sm font-semibold text-red-700'
-                : 'w-full cursor-not-allowed rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-400'
-            }
-          >
+      {/* ── Left sidebar (desktop) ── */}
+      <aside className="hidden md:flex w-56 flex-col flex-shrink-0 bg-white border-r border-gray-100 overflow-hidden">
+
+        {/* Site link + publish */}
+        <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center gap-1.5 mb-3">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+            <a href={normalizedSiteUrl} target="_blank" rel="noopener noreferrer"
+              className="text-xs text-gray-500 hover:text-gray-900 truncate flex-1 transition-colors min-w-0">
+              {siteUrl.replace(/^https?:\/\//, '')}
+            </a>
+            <a href={normalizedSiteUrl} target="_blank" rel="noopener noreferrer"
+              className="text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </div>
+
+          <button onClick={push} disabled={!hasDraft || pushStatus === 'pushing' || pushStatus === 'published'}
+            className={`w-full h-9 rounded-xl text-sm font-semibold transition-all ${
+              hasDraft && pushStatus === 'idle'   ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm'
+              : pushStatus === 'pushing'          ? 'bg-blue-100 text-blue-400 cursor-wait'
+              : pushStatus === 'published'        ? 'bg-emerald-100 text-emerald-700'
+              : pushStatus === 'error'            ? 'bg-red-100 text-red-600 cursor-pointer'
+              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+            }`}>
             {publishLabel}
           </button>
 
-          <div className="mt-2 flex items-center justify-between text-[11px] text-gray-400">
-            <span>
-              {saveStatus === 'saving' ? 'Saving…' :
-               saveStatus === 'saved'  ? 'Draft saved' :
-               saveStatus === 'error'  ? 'Save error' :
-               hasDraft                 ? 'Draft' : 'Synced'}
-            </span>
-            {hasDraft && changedSections.length > 0 ? (
-              <button
-                type="button"
-                onClick={revertAll}
-                className="text-gray-400 hover:text-red-600"
-              >
-                Discard all
-              </button>
-            ) : null}
-          </div>
-          {publishedAt ? (
-            <p className="mt-1 text-[11px] text-gray-400">
-              Last published {new Date(publishedAt).toLocaleString()}
+          {saveStatus !== 'idle' && (
+            <p className={`text-center text-xs mt-1.5 ${
+              saveStatus === 'saving' ? 'text-gray-400'
+              : saveStatus === 'saved' ? 'text-emerald-600'
+              : 'text-red-500'
+            }`}>
+              {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Draft saved' : 'Error saving'}
             </p>
-          ) : null}
-        </div>
-
-        <nav className="flex-1 overflow-y-auto py-2">
-          {sectionKeys.map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setActiveSection(key)}
-              className={
-                (activeSection === key
-                  ? 'bg-slate-100 text-slate-900 '
-                  : 'text-gray-700 hover:bg-gray-50 ') +
-                'flex w-full items-center justify-between px-4 py-2 text-left text-sm'
-              }
-            >
-              <span>{schema.sections[key].label}</span>
-              {isChanged(key) ? (
-                <span className="h-2 w-2 rounded-full bg-amber-500" title="Unpublished changes" />
-              ) : null}
-            </button>
-          ))}
-        </nav>
-
-        {siteUrl ? (
-          <div className="border-t border-gray-100 p-3">
-            <a
-              href={normalizeUrl(siteUrl)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 text-xs text-gray-500 hover:text-slate-900"
-            >
-              <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              <span className="truncate">{siteUrl.replace(/^https?:\/\//, '')}</span>
-            </a>
-          </div>
-        ) : null}
-      </aside>
-
-      {/* Middle: form */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-2xl px-6 py-8">
-          {!activeSchema ? (
-            <p className="text-sm text-gray-500">Pick a section to edit.</p>
-          ) : (
-            <section className="space-y-6">
-              <header className="flex items-start justify-between gap-4">
-                <div>
-                  <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{activeSchema.label}</h1>
-                  {activeSchema.description ? (
-                    <p className="mt-1 text-sm text-gray-500">{activeSchema.description}</p>
-                  ) : null}
-                </div>
-                {isChanged(activeSection!) ? (
-                  <button
-                    type="button"
-                    onClick={() => revertSection(activeSection!)}
-                    className="shrink-0 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 hover:border-red-300 hover:text-red-600"
-                  >
-                    Discard section
-                  </button>
-                ) : null}
-              </header>
-
-              <div className="space-y-5">
-                {Object.entries(activeSchema.fields).map(([fieldKey, field]) => {
-                  if (field.type === 'repeatable') {
-                    const items = Array.isArray(activeContent[fieldKey])
-                      ? (activeContent[fieldKey] as Array<Record<string, string>>)
-                      : []
-                    return (
-                      <RepeatableEditor
-                        key={fieldKey}
-                        sectionKey={activeSection!}
-                        fieldKey={fieldKey}
-                        field={field}
-                        items={items}
-                        onSetItem={setItemField}
-                        onAdd={() => addItem(activeSection!, fieldKey, field)}
-                        onRemove={(i) => removeItem(activeSection!, fieldKey, field, i)}
-                        onMove={(from, to) => moveItem(activeSection!, fieldKey, from, to)}
-                      />
-                    )
-                  }
-                  return (
-                    <LeafEditor
-                      key={fieldKey}
-                      field={field}
-                      value={typeof activeContent[fieldKey] === 'string' ? (activeContent[fieldKey] as string) : ''}
-                      onChange={(v) => setField(activeSection!, fieldKey, v)}
-                    />
-                  )
-                })}
-              </div>
-            </section>
           )}
         </div>
-      </main>
 
-      {/* Right: live preview (read-only) */}
-      <aside className="hidden w-[40%] flex-shrink-0 border-l border-gray-200 bg-white xl:flex xl:flex-col">
-        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Live site</p>
-          <span className="text-[11px] text-gray-400">
-            Shows currently published version
-          </span>
-        </div>
-        {siteUrl ? (
-          <iframe
-            src={normalizeUrl(siteUrl)}
-            title="Live site preview"
-            className="h-full w-full border-0"
-          />
-        ) : (
-          <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-gray-400">
-            No site URL configured yet — admin can set this in your client config.
-          </div>
-        )}
-      </aside>
-    </div>
-  )
-}
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto min-h-0 p-4 space-y-6">
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Field components
-// ─────────────────────────────────────────────────────────────────────────────
-
-function LeafEditor({
-  field,
-  value,
-  onChange,
-}: {
-  field: LeafField
-  value: string
-  onChange: (v: string) => void
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-sm font-medium text-slate-900">{field.label}</span>
-      {field.help ? <span className="mb-1.5 block text-xs text-gray-500">{field.help}</span> : null}
-
-      {field.type === 'textarea' ? (
-        <textarea
-          value={value}
-          placeholder={field.placeholder}
-          onChange={(e) => onChange(e.target.value)}
-          rows={4}
-          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-        />
-      ) : field.type === 'color' ? (
-        <div className="flex items-center gap-2">
-          <input
-            type="color"
-            value={value || '#2563EB'}
-            onChange={(e) => onChange(e.target.value)}
-            className="h-10 w-12 cursor-pointer rounded-lg border border-gray-200 p-1"
-          />
-          <input
-            type="text"
-            value={value}
-            placeholder="#2563EB"
-            onChange={(e) => onChange(e.target.value)}
-            className="flex-1 rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-          />
-        </div>
-      ) : field.type === 'image' ? (
-        <div className="space-y-2">
-          <input
-            type="url"
-            value={value}
-            placeholder="https://…"
-            onChange={(e) => onChange(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-          />
-          {value ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={value}
-              alt=""
-              className="h-32 w-full rounded-lg border border-gray-100 bg-gray-50 object-cover"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-            />
-          ) : null}
-        </div>
-      ) : (
-        <input
-          type={field.type === 'email' ? 'email' : field.type === 'phone' ? 'tel' : field.type === 'url' ? 'url' : 'text'}
-          value={value}
-          placeholder={field.placeholder}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
-        />
-      )}
-    </label>
-  )
-}
-
-function RepeatableEditor({
-  sectionKey,
-  fieldKey,
-  field,
-  items,
-  onSetItem,
-  onAdd,
-  onRemove,
-  onMove,
-}: {
-  sectionKey: string
-  fieldKey:   string
-  field:      RepeatableField
-  items:      Array<Record<string, string>>
-  onSetItem:  (sectionKey: string, fieldKey: string, index: number, subKey: string, value: string) => void
-  onAdd:      () => void
-  onRemove:   (index: number) => void
-  onMove:     (from: number, to: number) => void
-}) {
-  const canAdd    = !field.maxItems || items.length < field.maxItems
-  const canRemove = !field.minItems || items.length > field.minItems
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-slate-900">{field.label}</p>
-          <p className="text-xs text-gray-500">
-            {items.length} {items.length === 1 ? field.itemLabel.toLowerCase() : `${field.itemLabel.toLowerCase()}s`}
-            {field.maxItems ? ` (max ${field.maxItems})` : ''}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onAdd}
-          disabled={!canAdd}
-          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          + Add {field.itemLabel}
-        </button>
-      </div>
-
-      {items.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-xs text-gray-500">
-          No {field.itemLabel.toLowerCase()}s yet. Click &ldquo;Add {field.itemLabel}&rdquo; to add one.
-        </p>
-      ) : (
-        <ol className="space-y-3">
-          {items.map((item, i) => (
-            <li key={i} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  {field.itemLabel} {i + 1}
-                </span>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => onMove(i, i - 1)}
-                    disabled={i === 0}
-                    title="Move up"
-                    className="rounded px-2 py-0.5 text-xs text-gray-500 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onMove(i, i + 1)}
-                    disabled={i === items.length - 1}
-                    title="Move down"
-                    className="rounded px-2 py-0.5 text-xs text-gray-500 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onRemove(i)}
-                    disabled={!canRemove}
-                    title="Remove"
-                    className="rounded px-2 py-0.5 text-xs text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-3">
-                {Object.entries(field.fields).map(([subKey, subField]) => (
-                  <LeafEditor
-                    key={subKey}
-                    field={subField}
-                    value={item[subKey] ?? ''}
-                    onChange={(v) => onSetItem(sectionKey, fieldKey, i, subKey, v)}
-                  />
+          {/* Pending changes */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                Pending Changes
+                {totalChanges > 0 && (
+                  <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-100 text-blue-600 text-[10px] font-bold">
+                    {totalChanges}
+                  </span>
+                )}
+              </p>
+              {totalChanges > 1 && (
+                <button
+                  onClick={revertAll}
+                  className="text-[11px] text-gray-400 hover:text-red-500 transition-colors font-medium"
+                >
+                  Discard all
+                </button>
+              )}
+            </div>
+            {changedSections.length === 0 ? (
+              <p className="text-xs text-gray-400 leading-relaxed">
+                {hasDraft ? 'Loading changes…' : 'Everything is published.'}
+              </p>
+            ) : (
+              <div className="space-y-1">
+                {changedSections.map(({ sectionKey, label, fieldCount }) => (
+                  <div key={sectionKey}
+                    className="flex items-center justify-between px-2.5 py-2 rounded-lg bg-amber-50 border border-amber-100 group">
+                    <div className="min-w-0">
+                      <span className="text-xs font-medium text-amber-800">{label}</span>
+                      <span className="text-xs text-amber-400 ml-1.5">{fieldCount} {fieldCount === 1 ? 'field' : 'fields'}</span>
+                    </div>
+                    <button
+                      onClick={() => revertSection(sectionKey)}
+                      title="Discard changes"
+                      className="ml-2 flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full text-amber-400 hover:bg-red-100 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                    >
+                      ×
+                    </button>
+                  </div>
                 ))}
               </div>
-            </li>
-          ))}
-        </ol>
+            )}
+          </div>
+
+          {/* Publish history */}
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Last Published</p>
+            {publishedAt ? (
+              <div className="px-2.5 py-2 rounded-lg bg-gray-50 border border-gray-100">
+                <p className="text-xs text-gray-600 font-medium">
+                  {new Date(publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {new Date(publishedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">Never published</p>
+            )}
+          </div>
+
+          {/* Hint */}
+          <p className="text-xs text-gray-400 leading-relaxed">
+            Click any text on the preview to edit it.
+          </p>
+        </div>
+      </aside>
+
+      {/* ── Preview pane ── */}
+      <div className="flex-1 flex flex-col min-w-0 relative">
+
+        {/* Mobile top bar */}
+        <div className="md:hidden flex items-center gap-2 px-4 h-11 bg-white border-b border-gray-100 flex-shrink-0">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+          <span className="text-xs text-gray-500 truncate flex-1 min-w-0">{siteUrl.replace(/^https?:\/\//, '')}</span>
+          {totalChanges > 0 && (
+            <button onClick={() => setChangesOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-xs font-medium text-amber-700">
+              {totalChanges} change{totalChanges !== 1 ? 's' : ''}
+            </button>
+          )}
+          <button onClick={push} disabled={!hasDraft || pushStatus === 'pushing'}
+            className={`h-8 px-3 rounded-xl text-xs font-semibold transition-all flex-shrink-0 ${
+              hasDraft && pushStatus === 'idle' ? 'bg-blue-600 text-white'
+              : pushStatus === 'pushing'        ? 'bg-blue-100 text-blue-400'
+              : pushStatus === 'published'      ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-gray-100 text-gray-400'
+            }`}>
+            {pushStatus === 'pushing' ? '…' : pushStatus === 'published' ? '✓' : hasDraft ? 'Publish' : '✓'}
+          </button>
+        </div>
+
+        {/* Preview hint bar */}
+        <div className="flex items-center justify-between gap-3 px-4 h-9 bg-gray-800 flex-shrink-0">
+          <div className="flex gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-white/20" />
+            <div className="w-2.5 h-2.5 rounded-full bg-white/20" />
+            <div className="w-2.5 h-2.5 rounded-full bg-white/20" />
+          </div>
+          <span className="text-xs text-white/50 flex-1 text-center truncate">
+            Click any text in the preview to edit
+          </span>
+          <button onClick={reloadPreview}
+            className="text-white/40 hover:text-white/80 transition-colors flex-shrink-0">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Iframe */}
+        <div className="flex-1 bg-white">
+          <iframe ref={iframeRef} src={normalizedSiteUrl} className="w-full h-full border-0" title="Website Preview" />
+        </div>
+      </div>
+
+      {/* ── Click-to-edit popover ── */}
+      {clickField && (
+        <EditPopover
+          field={clickField}
+          position={popoverPos}
+          onChange={(v) => updateField(clickField.section, clickField.field, v)}
+          onDone={() => setClickField(null)}
+          onCancel={() => {
+            // Revert to original value on cancel
+            setClickField(null)
+          }}
+        />
       )}
+
+      {/* ── Mobile changes sheet ── */}
+      {changesOpen && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setChangesOpen(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+            <div className="flex justify-center mb-1">
+              <div className="w-10 h-1 rounded-full bg-gray-200" />
+            </div>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-900">Pending Changes</h3>
+              <div className="flex items-center gap-2">
+                {totalChanges > 1 && (
+                  <button onClick={() => { revertAll(); setChangesOpen(false) }}
+                    className="text-xs text-gray-400 hover:text-red-500 transition-colors font-medium">
+                    Discard all
+                  </button>
+                )}
+                <button onClick={push} disabled={!hasDraft || pushStatus === 'pushing'}
+                  className={`h-8 px-4 rounded-xl text-xs font-semibold ${hasDraft ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                  {pushStatus === 'pushing' ? 'Publishing…' : 'Publish'}
+                </button>
+              </div>
+            </div>
+            {changedSections.length === 0 ? (
+              <p className="text-sm text-gray-400">Everything is published.</p>
+            ) : (
+              <div className="space-y-2">
+                {changedSections.map(({ sectionKey, label, fieldCount }) => (
+                  <div key={sectionKey} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-100">
+                    <div className="min-w-0">
+                      <span className="text-sm font-medium text-amber-800">{label}</span>
+                      <span className="text-xs text-amber-400 ml-1.5">{fieldCount} {fieldCount === 1 ? 'field' : 'fields'}</span>
+                    </div>
+                    <button
+                      onClick={() => revertSection(sectionKey)}
+                      className="ml-3 flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-white border border-amber-200 text-amber-400 hover:bg-red-50 hover:border-red-200 hover:text-red-500 transition-colors text-base"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {publishedAt && (
+              <p className="text-xs text-gray-400">
+                Last published {new Date(publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at {new Date(publishedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+              </p>
+            )}
+          </div>
+        </>
+      )}
+
     </div>
   )
 }
