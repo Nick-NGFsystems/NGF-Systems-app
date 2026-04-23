@@ -855,30 +855,47 @@ export default function WebsiteEditorPage() {
     setContent(prev => {
       const next = { ...prev, [sectionKey]: baseContent[sectionKey] ?? {} }
       pushToPreview(next)
-      scheduleSave(next)
+      flushSaveOrClear(next)
       return next
     })
-  }, [baseContent, pushToPreview, scheduleSave])
+  }, [baseContent, pushToPreview, flushSaveOrClear])
+
+  // Immediate flush used by every revert operation. Cancels the debounced
+  // save and either POSTs the current draft OR — if the content equals the
+  // baseline once empties are stripped — DELETEs the draft so has_draft
+  // goes false and a refresh doesn't bring "phantom" pending changes back.
+  const flushSaveOrClear = useCallback((next: ContentBlock) => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    const filtered     = stripEmpty(next)
+    const baseFiltered = stripEmpty(baseContent)
+    const isClean      = JSON.stringify(filtered) === JSON.stringify(baseFiltered)
+
+    setSaveStatus('saving')
+    const req = isClean
+      ? fetch('/api/portal/website', { method: 'DELETE' })
+      : fetch('/api/portal/website', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ content: filtered }),
+        })
+
+    req.then(res => {
+      if (!res.ok) { setSaveStatus('error'); return }
+      setSaveStatus('saved')
+      setHasDraft(!isClean)
+      if (isClean) setExpandedPending({})
+    }).catch(() => setSaveStatus('error'))
+      .finally(() => setTimeout(() => setSaveStatus('idle'), 1500))
+  }, [stripEmpty, baseContent])
 
   const revertAll = useCallback(() => {
-    // Cancel any pending debounced save — we're nuking the draft entirely.
-    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     setContent(() => {
       const next = { ...baseContent }
       pushToPreview(next)
+      flushSaveOrClear(next)
       return next
     })
-    // Fire-and-forget DELETE clears draft_content on the server right away
-    // instead of relying on the debounced save, which gets lost on refresh.
-    setHasDraft(false)
-    setSaveStatus('saving')
-    fetch('/api/portal/website', { method: 'DELETE' })
-      .then(res => setSaveStatus(res.ok ? 'saved' : 'error'))
-      .catch(() => setSaveStatus('error'))
-      .finally(() => { setTimeout(() => setSaveStatus('idle'), 1500) })
-    // Clear the pending-row expansion state since there's nothing left to show
-    setExpandedPending({})
-  }, [baseContent, pushToPreview])
+  }, [baseContent, pushToPreview, flushSaveOrClear])
 
   const reloadPreview = useCallback(() => {
     if (iframeRef.current) iframeRef.current.src = iframeRef.current.src
@@ -1173,7 +1190,7 @@ export default function WebsiteEditorPage() {
           // Whole item added/removed — revert by matching baseline length.
           const next = { ...prev, [sectionKey]: { ...section, [arrayKey]: [...baseArr] } }
           pushToPreview(next)
-          scheduleSave(next)
+          flushSaveOrClear(next)
           return next
         }
         const currRow = (currArr[idx] ?? {}) as Record<string, unknown>
@@ -1185,10 +1202,10 @@ export default function WebsiteEditorPage() {
       }
       const next = { ...prev, [sectionKey]: section }
       pushToPreview(next)
-      scheduleSave(next)
+      flushSaveOrClear(next)
       return next
     })
-  }, [baseContent, pushToPreview, scheduleSave])
+  }, [baseContent, pushToPreview, flushSaveOrClear])
 
   const push = useCallback(async () => {
     setPushStatus('pushing')
