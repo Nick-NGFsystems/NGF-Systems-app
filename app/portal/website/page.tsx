@@ -443,6 +443,74 @@ export default function WebsiteEditorPage() {
     if (iframeRef.current) iframeRef.current.src = iframeRef.current.src
   }, [])
 
+  // Append a new item to a repeatable group: updates local state, tells the
+  // bridge to clone + re-index the DOM card template, schedules save.
+  const addGroupItem = useCallback((sectionKey: string, arrayKey: string) => {
+    if (!schema) return
+    const sec = schema.sections[sectionKey]
+    const fieldDef = sec?.fields[arrayKey]
+    if (!fieldDef || fieldDef.type !== 'repeatable') return
+    setContent(prev => {
+      const section = (prev[sectionKey] ?? {}) as Record<string, unknown>
+      const existing = Array.isArray(section[arrayKey]) ? section[arrayKey] as unknown[] : []
+      if (fieldDef.maxItems && existing.length >= fieldDef.maxItems) return prev
+      const newIndex = existing.length
+      const next = {
+        ...prev,
+        [sectionKey]: { ...section, [arrayKey]: [...existing, { ...fieldDef.defaultItem }] },
+      }
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: 'addGroupItem', group: `${sectionKey}.${arrayKey}`, newIndex },
+        '*'
+      )
+      scheduleSave(next)
+      return next
+    })
+  }, [schema, scheduleSave])
+
+  // Remove an item at index from a repeatable group: updates state, tells the
+  // bridge to remove the DOM card and shift subsequent indices, schedules save.
+  const removeGroupItem = useCallback((sectionKey: string, arrayKey: string, index: number) => {
+    if (!schema) return
+    const sec = schema.sections[sectionKey]
+    const fieldDef = sec?.fields[arrayKey]
+    if (!fieldDef || fieldDef.type !== 'repeatable') return
+    setContent(prev => {
+      const section = (prev[sectionKey] ?? {}) as Record<string, unknown>
+      const existing = Array.isArray(section[arrayKey]) ? section[arrayKey] as unknown[] : []
+      if (fieldDef.minItems && existing.length <= fieldDef.minItems) return prev
+      const updated = existing.filter((_, i) => i !== index)
+      const next = { ...prev, [sectionKey]: { ...section, [arrayKey]: updated } }
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: 'removeGroupItem', group: `${sectionKey}.${arrayKey}`, index },
+        '*'
+      )
+      scheduleSave(next)
+      return next
+    })
+  }, [schema, scheduleSave])
+
+  // Helper: list all (section, array) repeatable pairs from the schema so the
+  // sidebar can render one control panel per group.
+  const repeatableGroups = useMemo(() => {
+    if (!schema) return [] as { section: string; arrayKey: string; label: string; itemLabel: string; minItems: number; maxItems: number }[]
+    const out: { section: string; arrayKey: string; label: string; itemLabel: string; minItems: number; maxItems: number }[] = []
+    for (const [section, sec] of Object.entries(schema.sections)) {
+      for (const [fk, field] of Object.entries(sec.fields)) {
+        if (field.type === 'repeatable') {
+          out.push({
+            section, arrayKey: fk,
+            label:     sec.label + ' · ' + field.label,
+            itemLabel: field.itemLabel,
+            minItems:  field.minItems ?? 0,
+            maxItems:  field.maxItems ?? 99,
+          })
+        }
+      }
+    }
+    return out
+  }, [schema])
+
   const loadVersions = useCallback(async () => {
     setHistoryLoading(true)
     try {
@@ -751,6 +819,68 @@ export default function WebsiteEditorPage() {
               </div>
             )}
           </div>
+
+          {/* Repeatable groups — add/remove cards */}
+          {repeatableGroups.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Sections with Cards</p>
+              <div className="space-y-2">
+                {repeatableGroups.map(g => {
+                  const items = Array.isArray((content[g.section] as Record<string, unknown>)?.[g.arrayKey])
+                    ? ((content[g.section] as Record<string, unknown>)[g.arrayKey] as Record<string, string>[])
+                    : []
+                  const canAdd    = items.length < g.maxItems
+                  const canRemove = items.length > g.minItems
+                  return (
+                    <div key={`${g.section}.${g.arrayKey}`} className="rounded-lg bg-gray-50 border border-gray-100 p-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-gray-700 truncate">{g.label}</span>
+                        <span className="text-[10px] text-gray-400">{items.length}/{g.maxItems}</span>
+                      </div>
+                      <div className="mt-1.5 space-y-1">
+                        {items.map((item, i) => {
+                          const firstNonEmpty = Object.values(item).find(v => typeof v === 'string' && v !== '') as string | undefined
+                          return (
+                            <div key={i} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md bg-white border border-gray-100">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const firstField = Object.keys(item)[0]
+                                  if (firstField) scrollToField(g.section, `${g.arrayKey}.${i}.${firstField}`)
+                                }}
+                                className="text-[11px] text-gray-700 truncate text-left min-w-0 flex-1 hover:text-blue-600"
+                                title="Scroll to this card"
+                              >
+                                <span className="text-gray-400 mr-1">{g.itemLabel} {i + 1}</span>
+                                {firstNonEmpty && <span>· {firstNonEmpty.slice(0, 28)}</span>}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeGroupItem(g.section, g.arrayKey, i)}
+                                disabled={!canRemove}
+                                title={canRemove ? 'Remove card' : `At least ${g.minItems} required`}
+                                className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-full text-gray-400 hover:bg-red-100 hover:text-red-500 disabled:opacity-30 disabled:hover:bg-transparent"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => addGroupItem(g.section, g.arrayKey)}
+                        disabled={!canAdd}
+                        className="mt-2 w-full h-8 rounded-md text-[11px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-40 disabled:hover:bg-blue-50"
+                      >
+                        {canAdd ? `+ Add ${g.itemLabel}` : `Max ${g.maxItems} reached`}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Publish history */}
           <div>
