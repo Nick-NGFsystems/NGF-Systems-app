@@ -282,13 +282,21 @@ The public content endpoint returns only published `content` — never `draft_co
 |---|---|---|---|
 | Site → Editor | `ngfReady` | — | Bridge loaded; editor responds with `setEditMode` |
 | Editor → Site | `setEditMode` | `{ enabled: boolean }` | Activates/deactivates edit-mode CSS and click interception |
-| Editor → Site | `contentUpdate` | `{ content: ContentBlock }` | Patches DOM elements; bridge walks the nested object. For each `[data-ngf-field]`, **empty string restores the server-rendered default** (cached in `el.dataset.ngfDefault` on load); any non-empty value overwrites `textContent` |
+| Editor → Site | `contentUpdate` | `{ content: ContentBlock }` | Patches DOM elements; bridge walks the nested object. For each `[data-ngf-field]`, **empty string restores the server-rendered default** (cached in `el.dataset.ngfDefault` on load). Text fields write `el.textContent`; image fields (see below) write `el.setAttribute('src', …)` |
 | Editor → Site | `scrollToField` | `{ path: 'section.field' }` | Scrolls the target field into view and flashes a blue highlight pulse (`ngf-field-focus` class, 1.6s). Used by the clickable pending-change rows |
-| Site → Editor | `fieldClick` | `{ section, field, currentValue, elementRect }` | User clicked an editable field; editor opens the edit popover |
+| Editor → Site | `addGroupItem` | `{ group: 'section.arrayKey', newIndex: number }` | Clones the group container's last child as a template, re-indexes every descendant `data-ngf-field` to `newIndex`, resets text to placeholder or images to a grey "Click to set image" SVG, and appends. Used by the sidebar's "+ Add" button |
+| Editor → Site | `removeGroupItem` | `{ group: 'section.arrayKey', index: number }` | Removes the card whose descendants' fields start with `group.index.` and shifts every later sibling's indices down by one so they stay in sync with the editor's content array |
+| Site → Editor | `fieldClick` | `{ section, field, currentValue, elementRect }` | User clicked an editable field; editor opens the edit popover. `currentValue` is the DOM text for text fields, or `el.getAttribute('src')` for image fields |
 
 `elementRect` is `{ top, left, bottom, right, width, height }` in the iframe's viewport coordinates. The editor adds the iframe's own `getBoundingClientRect()` to convert to page-level coordinates for popover positioning.
 
-**Bridge default-text cache** — on mount and whenever `setEditMode` toggles on, the bridge iterates `[data-ngf-field]` elements and stores each `textContent` into `el.dataset.ngfDefault` (once). This lets the editor send unfiltered content (including `''`) without wiping the server-rendered fallback text. Revert operations (Cancel, X on pending row, Discard all, revert to a prior version) all work by flipping the field value back to `''` in the editor's content state — the bridge then restores the original text from the cache. No iframe reload is needed.
+**Bridge default-value cache** — on mount and whenever `setEditMode` toggles on, the bridge iterates `[data-ngf-field]` elements and stores each original value in `el.dataset.ngfDefault` (once). For `<img>` elements or anything with `data-ngf-type="image"` the stored value is `getAttribute('src')`; for everything else it's `textContent`. This lets the editor send unfiltered content (including `''`) without wiping the server-rendered fallback. Revert operations (Cancel, X on pending row, Discard all, revert to a prior version) all work by flipping the field value back to `''` in the editor's content state — the bridge then restores the original value from the cache. No iframe reload is needed.
+
+**Image-field detection** — `isImageField(el)` returns true when the element is `<img>` or has `data-ngf-type="image"`. These three paths behave differently for image elements:
+1. `captureDefaults()` caches `src` instead of `textContent`.
+2. The `contentUpdate` walker does `el.setAttribute('src', value)` instead of setting `textContent`. Empty-string still means "restore `dataset.ngfDefault`".
+3. `fieldClick` reports `currentValue` as `getAttribute('src')` so the edit popover opens with the live URL.
+`addGroupItem` resets a new slot's image to a grey `Click to set image` SVG data-URI (and syncs `dataset.ngfDefault` to match) so the cloned slot doesn't just duplicate the template's photo.
 
 **Hidden-container reveal** — the bridge CSS force-opens any ancestor marked hidden via `opacity-0`, `invisible`, `pointer-events-none`, `[hidden]`, or `[aria-expanded="false"] +` siblings IF it contains a `[data-ngf-field]`. Uses `:has()` (Chrome 105+, Safari 15.4+, Firefox 121+) so dropdown menus, accordions, and collapsed panels become editable without site-specific code. A subtle "expanded for editing" label appears above each force-opened container.
 
@@ -298,7 +306,7 @@ Opens when a `fieldClick` message is received. Input type is determined by `reso
 - `text` → single-line `<input>`
 - `textarea` → `<textarea>` (resizable, 4 rows desktop / 5 rows mobile sheet)
 - `color` → `<input type="color">` + hex text field side by side
-- `image` → URL text field + live preview thumbnail
+- `image` → rendered by the `ImageField` sub-component: URL text input, an **Upload from computer** button wired to `POST /api/portal/upload` (5 MB max, jpg/png/webp/gif/svg, stored in Vercel Blob, returns a public URL), and a live preview thumbnail. Pasting a URL and uploading a file both end up writing the same single `src` value into `content[section][field]`.
 
 `computePopoverPosition(iframeRect, elementRect)` positions the popover below the clicked element (flips above if not enough room below). On mobile (`window.innerWidth < 640`) it always renders as a bottom sheet instead.
 
@@ -324,8 +332,10 @@ For every `data-ngf-group` the scraper discovers, the editor sidebar renders a "
 - × on each row → `removeGroupItem` (respects `minItems`)
 - "+ Add <itemLabel>" button → `addGroupItem` (respects `maxItems`)
 
+**Initial item count** — the editor's sidebar must match what the site is actually rendering, even when the DB has no saved content yet. The scraper counts the SSR-rendered item indices by scanning the HTML for `data-ngf-field="<group>.N.*"` matches, tracks `max(N)` across all matches, and returns `initialItemCount = max + 1` on the repeatable field. `applySchemaDefaults` then initializes the array to `Math.max(minItems, initialItemCount, 1)`. So when a site hardcodes 3 featured projects and the DB is empty, the sidebar shows 3 rows (all with `''` values so the site's `||` fallback keeps rendering the hardcoded names until the user edits one).
+
 State flow — all changes go through `content[section][arrayKey]` just like scalar edits:
-- **Add** appends `{ ...defaultItem }` to the array, schedules a save, and posts `addGroupItem` to the bridge. Bridge clones the group's last child, rewrites every descendant `data-ngf-field` to the new index, clears textContent + ngfDefault so the placeholder shows, appends and scrolls.
+- **Add** appends `{ ...defaultItem }` to the array, schedules a save, and posts `addGroupItem` to the bridge. Bridge clones the group's last child, rewrites every descendant `data-ngf-field` to the new index. Text fields get blank textContent (so the `:empty::before` placeholder shows); image fields get a grey "Click to set image" SVG data-URI as both src and dataset.ngfDefault, so new slots don't just mirror the template's photo.
 - **Remove** splices the item out of the array, schedules save, posts `removeGroupItem`. Bridge finds and removes the card whose descendants' fields start with `group.N.`, then shifts every later sibling's indices down by one.
 
 No iframe reload is needed — the DOM stays in sync with state. After the next Publish, SSR re-renders the full set naturally from the published content.
@@ -419,18 +429,22 @@ Client sites must allow `app.ngfsystems.com` (and optionally `*.vercel.app`) to 
 2. Posts `{ type: 'ngfReady' }` to `window.parent` — editor responds with `setEditMode`
 
 **Messages received:**
-- `setEditMode { enabled }` — sets `data-ngf-edit="true|false"` on `<html>`, dismisses nav popup when disabling
-- `contentUpdate { content }` — recursively walks the content object and sets `el.textContent = value` for every `[data-ngf-field="path"]` element found in the DOM
+- `setEditMode { enabled }` — sets `data-ngf-edit="true|false"` on `<html>`, re-runs `captureDefaults()`, dismisses nav popup when disabling
+- `contentUpdate { content }` — recursively walks the content object. For each `[data-ngf-field="path"]`: empty string restores `dataset.ngfDefault`; non-empty sets `textContent` on regular elements or `setAttribute('src', …)` on image fields (`<img>` or `data-ngf-type="image"`)
+- `scrollToField { path }` — `scrollIntoView({ behavior: 'smooth', block: 'center' })` on the match, plus a 1.6s `ngf-field-focus` pulse animation
+- `addGroupItem { group, newIndex }` — clones the group container's last child as a template, re-indexes descendants, resets text slots to blank (placeholder shows via `:empty::before`) and image slots to a grey "Click to set image" SVG, appends and scrolls
+- `removeGroupItem { group, index }` — removes the card containing fields at `group.index.*` and decrements every later sibling's indices by one
 
 **Click interception (capture phase):**
 All clicks are intercepted in capture phase (`document.addEventListener('click', handler, true)`). The handler:
 1. If the click is inside the injected nav popup → passes through (popup manages itself)
-2. Otherwise: calls `e.preventDefault()`, `e.stopPropagation()`, `e.stopImmediatePropagation()`
-3. Walks up the DOM from `e.target` looking for `data-ngf-field`:
-   - **Found** → posts `fieldClick { section, field, currentValue, elementRect }` to `window.parent`
-4. If no `data-ngf-field`, walks up again looking for `<a>` or `<button>`:
+2. If the click lands on an `aria-haspopup` or `aria-expanded` toggle that is NOT itself a field → returns early without `preventDefault` so the site's own open/close state fires (keeps dropdowns expandable in edit mode without forcing them open)
+3. Otherwise calls `e.preventDefault()`, `e.stopPropagation()`, `e.stopImmediatePropagation()`
+4. Walks up the DOM from `e.target` looking for `data-ngf-field`:
+   - **Found** → posts `fieldClick { section, field, currentValue, elementRect }` to `window.parent` (currentValue is `src` for image fields, `textContent.trim()` otherwise)
+5. If no `data-ngf-field`, walks up again looking for `<a>` or `<button>`:
    - **`<a>` with hash href** (e.g. `#services`) → scrolls to that element in-page without a popup
-   - **`<a>` with real href** → shows nav popup with "→ Go to page" and "Stay on page" buttons
+   - **`<a>` with real href** → shows nav popup with "Go to page" and "Edit" buttons (the Edit button fires `fieldClick` for the surrounding editable field, if any)
    - **`<button>`** → silently blocked (e.g. mobile menu toggle — opening it mid-edit doesn't make sense)
 
 **Nav popup:** a small `<div id="ngf-nav-popup">` injected into `document.body`. Positioned near the click, clamped to viewport. "Go to page" navigates via `window.location.href`. Dismissed when clicking anywhere outside it, or when edit mode is disabled.
@@ -481,16 +495,37 @@ All clicks are intercepted in capture phase (`document.addEventListener('click',
   {description}
 </p>
 
-<!-- Repeatable array — container element, no data-ngf-field -->
+<!-- Image field — use a plain <img> so the bridge can read/write src directly.
+     next/image with `fill` renders a wrapper that hides the real <img> node. -->
+<img
+  src={content['hero.image'] || '/hero-default.jpg'}
+  alt="Hero background"
+  data-ngf-field="hero.image"
+  data-ngf-label="Hero Background Image"
+  data-ngf-type="image"
+  data-ngf-section="Hero"
+/>
+
+<!-- Repeatable array — container element, no data-ngf-field. Including an
+     "image" field in data-ngf-item-fields opens the Upload from computer
+     flow in the editor popover for that sub-field. -->
 <div
   data-ngf-group="services.items"
   data-ngf-item-label="Service"
   data-ngf-min-items="1"
   data-ngf-max-items="16"
-  data-ngf-item-fields='[{"key":"name","label":"Service Name","type":"text"},{"key":"price","label":"Price","type":"text"}]'
+  data-ngf-item-fields='[{"key":"image","label":"Photo","type":"image"},{"key":"name","label":"Service Name","type":"text"},{"key":"price","label":"Price","type":"text"}]'
 >
   {services.map((svc, i) => (
     <div key={i}>
+      <img
+        src={content[`services.items.${i}.image`] || svc.image}
+        alt={svc.name}
+        data-ngf-field={`services.items.${i}.image`}
+        data-ngf-label="Photo"
+        data-ngf-type="image"
+        data-ngf-section="Services"
+      />
       <!-- Array item fields use numeric index in path -->
       <span data-ngf-field={`services.items.${i}.name`} data-ngf-label="Service Name" data-ngf-type="text" data-ngf-section="Services">
         {svc.name}
@@ -511,6 +546,8 @@ All clicks are intercepted in capture phase (`document.addEventListener('click',
 ```
 
 **Field type values:** `text` | `textarea` | `color` | `image` | `toggle`
+
+**Image-field requirements:** use a plain `<img>` element (not `next/image` with `fill`, which wraps the real `<img>` in a span). The bridge reads/writes `src` directly. In edit mode the bridge sets `src = dataset.ngfDefault` when the editor sends `''`, so changing or reverting an image never requires an iframe reload.
 
 **Section key rule:** always equals the first dot-segment of `data-ngf-field`. The `data-ngf-section` attribute is only used as the human-readable label in the editor sidebar — the grouping key is derived from the path.
 
