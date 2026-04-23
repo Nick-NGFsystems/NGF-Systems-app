@@ -51,8 +51,10 @@ export async function POST(request: NextRequest) {
     }
 
     const compatible =
-      html.includes('app.ngfsystems.com/api/public/website') ||
-      html.includes('ngfsystems.com/api/public/website')
+      html.includes('ngf-public-api') ||                          // meta tag in layout
+      html.includes('app.ngfsystems.com/api/public/content') ||   // content API URL
+      html.includes('app.ngfsystems.com/api/public/website') ||   // legacy path
+      html.includes('ngfsystems.com/api/public')
 
     return NextResponse.json({
       compatible,
