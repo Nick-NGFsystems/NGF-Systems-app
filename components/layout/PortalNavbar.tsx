@@ -26,6 +26,7 @@ export default function PortalNavbar({ config }: PortalNavbarProps) {
     ...(config.page_content ? [{ label: 'Content', href: '/portal/portal-content' }] : []),
     ...(config.page_invoices ? [{ label: 'Invoices', href: '/portal/portal-invoices' }] : []),
     ...(config.page_request ? [{ label: 'Request', href: '/portal/portal-request' }] : []),
+    { label: 'Plans', href: '/portal/portal-plans' },
   ]
 
   return (

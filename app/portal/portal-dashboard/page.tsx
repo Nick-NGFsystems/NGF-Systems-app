@@ -17,9 +17,10 @@ export default async function PortalDashboardPage() {
   const [activeProjects, openRequests, subscription] = await Promise.all([
     db.project.count({ where: { client_id: client.id, status: { in: ['ACTIVE', 'IN_PROGRESS'] } } }),
     db.changeRequest.count({ where: { client_id: client.id, status: { in: ['PENDING', 'IN_PROGRESS'] } } }),
-    db.subscription.findUnique({
-      where: { client_id: client.id },
-      select: { current_period_end: true, status: true },
+    db.subscription.findFirst({
+      where:   { client_id: client.id },
+      orderBy: { created: 'desc' },
+      select:  { current_period_end: true, status: true },
     }),
   ])
 
@@ -76,6 +77,25 @@ export default async function PortalDashboardPage() {
         <h1 className="font-sans text-3xl font-semibold tracking-tight text-slate-900">Welcome back</h1>
         <p className="mt-1 text-sm text-gray-500">{client.business || client.name}</p>
       </header>
+
+      {(!subscription || subscription.status !== 'ACTIVE') && (
+        <section className="rounded-xl border border-slate-900 bg-slate-900 p-5 text-white shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="font-semibold">Pick a plan to activate your portal</h2>
+              <p className="mt-1 text-sm text-slate-300">
+                Choose a monthly plan or a one-time build to unlock website editing, content, and more.
+              </p>
+            </div>
+            <Link
+              href="/portal/portal-plans"
+              className="shrink-0 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-900 transition hover:bg-slate-100"
+            >
+              View plans
+            </Link>
+          </div>
+        </section>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <article className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">

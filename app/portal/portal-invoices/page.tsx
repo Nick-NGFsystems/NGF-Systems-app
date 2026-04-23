@@ -22,7 +22,7 @@ export default async function PortalInvoicesPage() {
   if (!client?.config?.page_invoices) redirect('/unauthorized')
 
   const [subscription, contracts] = await Promise.all([
-    db.subscription.findUnique({ where: { client_id: client.id } }),
+    db.subscription.findFirst({ where: { client_id: client.id }, orderBy: { created: 'desc' } }),
     db.contract.findMany({
       where: { client_id: client.id },
       orderBy: { created: 'desc' },
