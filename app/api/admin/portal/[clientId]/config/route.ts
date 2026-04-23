@@ -29,21 +29,33 @@ async function validateAdmin() {
 
 async function verifyNgfSite(url: string): Promise<{ ok: boolean; error?: string }> {
   const targetUrl = url.startsWith('http') ? url : `https://${url}`
+  // Cachebust so Vercel's edge doesn't serve a stale prerender to our server fetch.
+  const separator = targetUrl.includes('?') ? '&' : '?'
+  const bustedUrl = `${targetUrl}${separator}__ngf_verify=${Date.now()}`
+
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 7000)
   try {
-    const response = await fetch(targetUrl, {
-      signal: controller.signal,
-      headers: { 'User-Agent': 'NGFsystems-Verifier/1.0' },
+    const response = await fetch(bustedUrl, {
+      signal:  controller.signal,
+      cache:   'no-store',
+      headers: {
+        'User-Agent':    'NGFsystems-Verifier/1.0',
+        'Cache-Control': 'no-cache, no-store, max-age=0',
+        'Pragma':        'no-cache',
+      },
     })
     clearTimeout(timeout)
     if (!response.ok) {
       return { ok: false, error: `Site returned HTTP ${response.status}` }
     }
     const html = await response.text()
+    // Must stay in sync with /api/admin/verify-ngf-site — same markers.
     const compatible =
-      html.includes('app.ngfsystems.com/api/public/website') ||
-      html.includes('ngfsystems.com/api/public/website')
+      html.includes('ngf-public-api') ||                          // meta tag in layout
+      html.includes('app.ngfsystems.com/api/public/content') ||   // current content API
+      html.includes('app.ngfsystems.com/api/public/website') ||   // legacy path
+      html.includes('ngfsystems.com/api/public')
     return compatible
       ? { ok: true }
       : {
