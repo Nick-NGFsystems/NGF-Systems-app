@@ -130,6 +130,7 @@ All tables in `/prisma/schema.prisma`. Never edit the database directly.
 | `clients` | All clients — admin-created and self-signup |
 | `client_configs` | Per-client portal toggles and settings |
 | `website_content` | Published + draft JSON content for the website editor |
+| `website_content_versions` | Snapshot-per-publish history; powers one-click revert. Capped at 20 per client |
 | `site_content` | Legacy per-field content rows (still used by PortalManager) |
 | `change_requests` | Change requests submitted by clients |
 | `project_requests` | Website request form submissions |
@@ -155,7 +156,14 @@ All tables in `/prisma/schema.prisma`. Never edit the database directly.
 - `client_id` — unique per client
 - `content` (JSON) — published content; what the live website reads
 - `draft_content` (JSON | null) — saved but unpublished; cleared on publish
+- `schema_json` (JSON | null) — per-client schema override; null → DEFAULT_SCHEMA is used
 - `published_at` — timestamp of last publish
+- `versions` — cascade-deleted relation to `website_content_versions`
+
+### `website_content_versions` — revert history
+- Written once per successful Publish inside `/api/portal/website/push`
+- Kept to a rolling 20 per client; older entries pruned immediately after each new snapshot
+- On revert, a fresh snapshot of the current content is written first (note: "Auto-snapshot before revert") so the revert itself is undoable
 
 ---
 
@@ -239,7 +247,11 @@ The editor manages four pieces of state:
 User edits a field in the editor
   → updateField(section, fieldPath, value) updates content state immediately
   → pushToPreview(content) debounced 120ms → postMessage contentUpdate to iframe
+      (UNFILTERED — bridge treats '' as "restore default", so reverts repaint
+       without an iframe reload)
   → scheduleSave(content) debounced 800ms → POST /api/portal/website
+      (stripEmpty filters out '' entries before persisting so the DB doesn't
+       accumulate empty-string noise from applySchemaDefaults)
       → saves to website_content.draft_content (never touches published content)
       → sets hasDraft = true
 
@@ -247,8 +259,16 @@ User clicks "Publish Changes"
   → POST /api/portal/website (force-saves current content as draft)
   → POST /api/portal/website/push
       → promotes draft_content → content, sets published_at, clears draft_content
+      → snapshots into website_content_versions, prunes to 20 most recent
       → optionally pings WEBSITE_REVALIDATION_SECRET on client site (non-fatal)
   → editor sets publishedContent = content, hasDraft = false, reloads iframe after 1.2s
+
+User clicks "Revert" on a history entry
+  → POST /api/portal/website/versions { versionId }
+      → auto-snapshots current content first (undoable)
+      → promotes target version to website_content.content
+      → clears draft_content
+  → editor location.reload()s to resync state
 
 Client website fetches content (no auth, full CORS):
   GET /api/public/content?domain=<domain>   ← matches client by site_url, returns flat dot-notation
@@ -262,10 +282,15 @@ The public content endpoint returns only published `content` — never `draft_co
 |---|---|---|---|
 | Site → Editor | `ngfReady` | — | Bridge loaded; editor responds with `setEditMode` |
 | Editor → Site | `setEditMode` | `{ enabled: boolean }` | Activates/deactivates edit-mode CSS and click interception |
-| Editor → Site | `contentUpdate` | `{ content: ContentBlock }` | Patches DOM elements; bridge walks the nested object and calls `el.textContent = value` for each matching `[data-ngf-field]` |
+| Editor → Site | `contentUpdate` | `{ content: ContentBlock }` | Patches DOM elements; bridge walks the nested object. For each `[data-ngf-field]`, **empty string restores the server-rendered default** (cached in `el.dataset.ngfDefault` on load); any non-empty value overwrites `textContent` |
+| Editor → Site | `scrollToField` | `{ path: 'section.field' }` | Scrolls the target field into view and flashes a blue highlight pulse (`ngf-field-focus` class, 1.6s). Used by the clickable pending-change rows |
 | Site → Editor | `fieldClick` | `{ section, field, currentValue, elementRect }` | User clicked an editable field; editor opens the edit popover |
 
 `elementRect` is `{ top, left, bottom, right, width, height }` in the iframe's viewport coordinates. The editor adds the iframe's own `getBoundingClientRect()` to convert to page-level coordinates for popover positioning.
+
+**Bridge default-text cache** — on mount and whenever `setEditMode` toggles on, the bridge iterates `[data-ngf-field]` elements and stores each `textContent` into `el.dataset.ngfDefault` (once). This lets the editor send unfiltered content (including `''`) without wiping the server-rendered fallback text. Revert operations (Cancel, X on pending row, Discard all, revert to a prior version) all work by flipping the field value back to `''` in the editor's content state — the bridge then restores the original text from the cache. No iframe reload is needed.
+
+**Hidden-container reveal** — the bridge CSS force-opens any ancestor marked hidden via `opacity-0`, `invisible`, `pointer-events-none`, `[hidden]`, or `[aria-expanded="false"] +` siblings IF it contains a `[data-ngf-field]`. Uses `:has()` (Chrome 105+, Safari 15.4+, Firefox 121+) so dropdown menus, accordions, and collapsed panels become editable without site-specific code. A subtle "expanded for editing" label appears above each force-opened container.
 
 ### Edit Popover (`EditPopover` component)
 
@@ -279,7 +304,27 @@ Opens when a `fieldClick` message is received. Input type is determined by `reso
 
 Changes are applied to `content` state immediately as the user types (`onChange`). Pressing "Done" or Enter closes the popover; the change is already committed.
 
-**Known limitation:** The "Cancel" button currently closes the popover without reverting the already-committed change. The value remains in `content` state.
+**Cancel behavior** — clicking Cancel (or the scrim, or the × in the popover corner) restores the field to its pre-edit value. The editor snapshots the original `content[section][field]` into a ref (`preEditValue`) when the popover opens, and on Cancel calls `updateField` with that snapshot. If the snapshot was `undefined` (field never had a stored value), Cancel sends `''`, which the bridge interprets as "restore server-rendered default".
+
+### Pending Changes Sidebar — Click-to-Scroll + Per-Section Revert
+
+Each entry in the Pending Changes list is a button:
+- **Click the row body** → sends `scrollToField` to the iframe, which scrolls and flash-highlights the first changed field in that section
+- **Click the × on the right** → calls `revertSection(sectionKey)`, which sets `content[sectionKey] = baseContent[sectionKey]`, pushes to the preview (bridge restores defaults for any `''` fields), and schedules a save
+
+`firstChangedFieldOf(sectionKey)` walks the section's schema to find the first scalar or repeatable-item field that differs from baseline — used as the scroll target.
+
+"Discard all" calls `revertAll()` which resets every section back to baseline.
+
+### Version History and Revert
+
+Every successful Publish writes a snapshot into `website_content_versions` with the full content blob, timestamped. The table has `(client_id, published_at DESC)` indexed and is capped at **20 most recent entries per client** (older ones pruned inside the push handler).
+
+`/api/portal/website/versions` endpoints:
+- `GET` — returns `{ versions: [{ id, published_at, note }] }` for the caller's client (auth via Clerk session → resolves client from `clerk_user_id`, never accepts `client_id` from body)
+- `POST { versionId }` — reverts: first auto-snapshots the current `content` (note: "Auto-snapshot before revert"), then promotes the target version into `website_content.content` and clears any in-progress draft. `findFirst` is scoped to the caller's `client_id` to block IDOR.
+
+Portal editor sidebar surfaces a "View history" toggle under "Last Published". Each entry shows date/time + optional note and a "Revert" button that confirms, calls the POST endpoint, and does a `location.reload()` to resync editor state.
 
 ### `portal/website/preview/page.tsx` — Dead Code
 
@@ -321,12 +366,12 @@ Each client site has `lib/ngf.ts` with two exports:
 **Usage pattern in page components:**
 ```typescript
 const content = await getNgfContent()
-const headline = content['hero.headline'] ?? 'Fallback text'   // scalar field
+const headline = content['hero.headline'] || 'Fallback text'   // scalar — MUST use ||
 const services = getItems(content, 'services.items')           // repeatable
 const display  = services.length > 0 ? services : hardcodedDefaults
 ```
 
-Always provide hardcoded fallback defaults with `??` for every field — the editor may not have published content for a new client yet.
+**Always use `||` (logical OR), never `??` (nullish coalescing), for scalar fallbacks.** Published content may contain explicit empty strings (`''`) for fields that the editor filled and then the user deleted back out. `??` only catches `null`/`undefined` so `content['key'] ?? 'fallback'` would render empty; `||` catches `''` too and falls through to the hardcoded default. This also keeps behavior consistent with the editor bridge, which treats `''` as "restore original default" via its `data-ngf-default` cache.
 
 ### Required env vars for client sites
 
@@ -519,6 +564,18 @@ Public routes (under `/api/public/`) include full CORS headers and an `OPTIONS` 
 
 Portal routes use `auth()` to get `userId` and look up the client via `clerk_user_id` — never accept a client ID from the request body/params for identifying the caller.
 
+### Security Invariants (per route)
+
+Every portal route MUST satisfy all three:
+
+1. **Identity from session, not input.** Resolve the client via `db.client.findUnique({ where: { clerk_user_id: userId } })`. Never trust a `client_id` from the request body, query, or params for authorization decisions.
+2. **Scope all DB reads and writes to the resolved `client.id`.** Even on single-record lookups, include `client_id` in the `where` clause (use `findFirst` with the scope rather than `findUnique` by id alone) to prevent IDOR — a client must never be able to request `?id=<another-client's-record-id>` and get data back.
+3. **Middleware role check is NOT enough for `/api/*`.** The middleware matcher runs on API routes, but its `path.startsWith('/portal')` and `path.startsWith('/admin')` role guards only catch PAGE paths. Sensitive admin API routes (`/api/admin/*`) must re-check `role === 'admin'` inside the handler. Sensitive portal routes that must only be reachable by signed-up clients should check `role === 'client' || role === 'admin'` — a `LEAD`-role user who happens to have a client row could otherwise hit the endpoint.
+
+### Admin "Reset Website Content" button
+
+`/admin/portal/[clientId]` surfaces a `ResetWebsiteContentButton` that DELETEs `website_content` for a given client via `/api/admin/clients/[id]/website-content`. Use when content got cross-contaminated between clients (wrong `site_url` matched, duplicated rows, etc.) and you want the live site to fall back to its hardcoded source-of-truth defaults. Confirmation dialog + admin role required.
+
 ---
 
 ## Clerk Setup
@@ -613,4 +670,8 @@ No `experimental` or `serverActions` blocks — this was removed. The config onl
 - Do not omit `data-ngf-label` or `data-ngf-section` from client site elements — the scraper silently skips fields missing either attribute, so they will not appear in the editor
 - Do not omit `NEXT_PUBLIC_SITE_URL` from a client site's Vercel env vars — without it the content API domain lookup fails and the site renders only hardcoded defaults
 - Do not omit the CSP `frame-ancestors` header from a client site — the portal editor's live preview will be blocked by the browser
+- Do not use `??` for client-site scalar fallbacks (`content['key'] ?? 'fallback'`) — published content may contain `''` which `??` doesn't catch. Always use `||` so empty strings fall through to the hardcoded default. Mirrors what the bridge does with its `data-ngf-default` cache.
+- Do not send filtered (empty-stripped) content in the editor's `contentUpdate` or `ngfReady` messages — the bridge needs `''` values to restore original text on revert. `stripEmpty` only belongs in `scheduleSave` so we don't persist `''` to the DB.
+- Do not write logic that trusts `client_id` from a request body or query param in portal routes — resolve the client from `clerk_user_id` instead (see the three Security Invariants above)
+- Do not ship a new portal API route without a `role` check inside the handler — the middleware's role guard only protects page paths, not API paths
 
