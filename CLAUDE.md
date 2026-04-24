@@ -91,12 +91,16 @@ app/
   portal/website/               ← schema-driven website editor
   portal/website/preview/       ← DEAD CODE — orphaned, never used by the editor
   portal/portal-website/        ← legacy website page (keep for compatibility)
+  w/[clientId]/                 ← LEGACY app-hosted site template (old fixed schema)
+  w/domain/[domain]/            ← LEGACY custom-domain resolver — middleware rewrites here
   api/admin/                    ← admin API routes (role check required)
   api/portal/                   ← portal API routes (role check required)
   api/public/                   ← public CORS endpoints (no auth)
   api/webhooks/                 ← Clerk + Stripe webhook handlers
   api/leads/                    ← lead ingestion from ngfsystems.com
 ```
+
+**`app/w/*` status**: wired up but legacy. The middleware (line ~35) still rewrites any non-app-domain hostname to `/w/domain/<hostname>`, so removing these files breaks every custom-domain client currently pointed at the NGF app. The routes use the **old fixed-schema shape** of `website_content.content` (`hero.headline`, `about.body`, `services[]`, etc. as a typed interface) — not the flat dot-notation shape the current editor produces. New clients should always ship as their own Vercel project (see WrenchTime, NorthCove). Don't add new code under `/w/*`. If no production custom domains currently route here, delete the middleware rewrite + these files together in a single commit.
 
 ### Role-Based Access
 - Every admin route checks `role === "admin"` — redirects to `/unauthorized` if not
@@ -627,6 +631,19 @@ Some clients (e.g. WrenchTime) have their own Neon databases with a `serviceRequ
 
 When a service request is approved, a `bookingToken` (32-byte hex) is generated with a 48-hour TTL, inserted into the client's DB, and the `booking_url` template (`[token]` replaced) is emailed via Resend to the requester.
 
+### Client External DB Migrations — how to ship schema changes
+
+Schema changes on a client's external DB live in THAT CLIENT'S REPO (e.g. `WrenchTime-Cycles/prisma/`), not in this one. There's no cross-repo migration runner — each client site has its own Vercel build that runs `prisma migrate deploy` against its own `DATABASE_URL`.
+
+Sequence the NGF admin code expects every field you'll read or write:
+
+1. Add the field to `prisma/schema.prisma` in the **client site repo** (e.g. `ServiceRequest { tokenExpires DateTime? }`).
+2. Generate the migration there: `./node_modules/.bin/prisma migrate dev --name add_token_expires`. Commit both the schema change and the generated SQL under `prisma/migrations/`.
+3. On the **NGF app side**, the admin API routes access these fields via `getClientDb(config.database_url)`. Prisma there is the client-site repo's generated client — so you need to re-run `prisma generate` in this repo too AFTER the client repo's schema change is merged, OR (the common case) access the external DB via raw SQL through `$queryRaw` / `$executeRaw` so the types don't have to match.
+4. The client site's next Vercel deploy runs `prisma migrate deploy` against its `DATABASE_URL` — that's when the column actually lands. Migrations shipped-but-unmerged are silently not applied.
+
+If you add a migration in a headless session and can't run it locally, **record it in the Known Gaps table** of that client's CLAUDE.md (e.g. `WrenchTime-Cycles/CLAUDE.md`) with "Unverified against live DB" so the next session knows to check before relying on the column.
+
 ---
 
 ## GA4 Analytics (`/api/admin/analytics`)
@@ -783,7 +800,7 @@ No `experimental` or `serverActions` blocks — this was removed. The config onl
 - Do not write inline styles — Tailwind only
 - Do not create new layout components — use `AdminLayout`, `PortalLayout`, or `PublicLayout` in `/components/layout/`
 - Do not hardcode field names in the website editor — the schema is derived by scraping `data-ngf-*` attributes from the live client site
-- Do not host client websites through the NGF app (`/w/` routes have been removed) — every client site is a separate Vercel project
+- Do not host NEW client websites through the NGF app. `/w/[clientId]` and `/w/domain/[domain]` still exist for legacy custom domains and are wired through the middleware rewrite, but the schema shape they expect is the old pre-scraping fixed-shape JSON. Every new client site ships as its own Vercel project. Don't add new code under `app/w/*`.
 - Do not write to `website_content.content` directly from the portal — only the `/push` route promotes draft to published
 - Do not add new templates to `lib/templates/` — the folder is dead code. All schema changes go in the client site HTML via `data-ngf-*` attributes
 - Do not set or read `client_configs.template_id` — it is deprecated and ignored
