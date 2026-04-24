@@ -749,11 +749,20 @@ Things that are built but **not verified end-to-end**, or built for one client a
 |---|---|---|
 | Vercel Blob token | ⚠️ Not provisioned in prod | `BLOB_READ_WRITE_TOKEN` not set on `ngf-systems-app` project. Image uploads from the editor fail with "Blob storage is not configured" until Storage → Create Blob → Connect Project is run once. |
 | WrenchTime published content | ⚠️ Cross-contaminated | Public content API for `wrench-time-cycles-mockup.vercel.app` returns a mix of NorthCove + WT fields (legacy from URL-switching before the snapshot-and-clear fix landed). Fix: Admin portal → ResetWebsiteContentButton on the affected client. |
+| `app/w/*` legacy routes | ⚠️ Wired but dormant | `/w/[clientId]` and `/w/domain/[domain]` still exist and the middleware still rewrites custom-domain hostnames to them. They use the pre-scraping fixed-shape `WebsiteContent` interface — broken for any new-shape client. No production domains should currently be routing through them, but verify before removing: check every `client_configs.site_url` against live Vercel domain aliases. Delete middleware rewrite (~lines 31–36) and `app/w/*` in the same commit. |
 | `<select><option>` editing | ❌ Not supported | Native browser UI; the bridge can't intercept option clicks. Contact form dropdowns on NorthCove and elsewhere are visually labeled but the option values aren't editable from the portal. |
 | Client-site starter template | ⚠️ Out of sync | `ngf-client-starter` repo still has the pre-revert-UX bridge. New sites should copy `NgfEditBridge.tsx` from NorthCove or WrenchTime until the starter is refreshed. |
 | Prisma migrations | ⚠️ Run at deploy time only | The Vercel build runs `prisma migrate deploy`, so migrations only land on successful deploy. If writing a migration in a headless session, the SQL is shipped-but-unverified until the next deploy or a local `./node_modules/.bin/prisma migrate dev`. Call this out in the PR message. |
+| `ngfEditorShowAllFields` default | ✅ Off (default) | Editor sidebar defaults to Manage Sections mode (repeatable groups only). Users who toggle Show-all-fields have their preference persisted in localStorage. |
 
 **When finishing a session, add an entry here for anything you committed but couldn't verify live.** This is the single most useful line a session can leave for the next one.
+
+### Client repos with their own CLAUDE.md
+
+Each client site is a separate repo with its own CLAUDE.md + Known Gaps. If you're debugging a cross-repo integration issue, read both:
+
+- [`WrenchTime-Cycles/CLAUDE.md`](https://github.com/Nick-NGFsystems/WrenchTime-Cycles/blob/main/CLAUDE.md) — motorcycle service shop, has its own Neon DB for `ServiceRequest`, Clerk for shop-owner auth
+- [`NorthCoveBuilders-Mockup/CLAUDE.md`](https://github.com/Nick-NGFsystems/NorthCoveBuilders-Mockup/blob/main/CLAUDE.md) — custom home builder marketing site, fully annotated reference implementation of the NGF editor integration
 
 ---
 
