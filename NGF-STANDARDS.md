@@ -369,6 +369,99 @@ Put `data-ngf-group` on the container, declare each item's sub-fields in `data-n
 
 ---
 
+## Local development — never deploy to test
+
+The default for every change is **run it locally first.** Don't push speculative work to test on Vercel — it costs build credit and is slower than `npm run dev`.
+
+### `npm run dev` — for 90% of changes
+
+```bash
+cd <repo>
+npm install            # one time
+npm run dev            # opens http://localhost:3000
+```
+
+Hot reload picks up file saves in 1–2 seconds. Edit, save, alt-tab to the browser, see the result. Zero deploys.
+
+### `.env.local` setup
+
+Each repo needs a `.env.local` (gitignored) that mirrors the relevant Vercel env vars. For client sites the minimum is:
+
+```
+NEXT_PUBLIC_SITE_URL=https://yourcustomdomain.com
+NGF_APP_URL=https://app.ngfsystems.com
+```
+
+`NEXT_PUBLIC_SITE_URL` should match `client_configs.site_url` in the NGF database — that way `getNgfContent()` running locally hits the production NGF portal and your local dev shows live published content. To pull every Vercel env var into `.env.local` in one command:
+
+```bash
+npx vercel link        # one time per repo — connects to the Vercel project
+npx vercel env pull    # writes .env.local from Vercel
+```
+
+### `vercel dev` — when you need parity with production
+
+For sites with serverless functions, edge middleware, or Vercel-specific behavior you can't reproduce with `npm run dev`:
+
+```bash
+npx vercel dev         # runs with the full Vercel stack on localhost
+```
+
+Slightly slower startup but identical to production runtime.
+
+### Testing the NGF portal editor integration locally
+
+Editor work is the one case where pure localhost gets in the way — the portal at `app.ngfsystems.com` needs to load your site in an iframe, which means the local dev server has to be reachable from the public internet. Two options:
+
+**A. Tunnel localhost (free, recommended).** Cloudflared works without an account:
+
+```bash
+# one time:
+winget install --id Cloudflare.cloudflared
+# every dev session:
+npm run dev                                       # one terminal
+cloudflared tunnel --url http://localhost:3000    # another terminal
+# prints a public URL like https://random-words.trycloudflare.com
+```
+
+In NGF admin, temporarily set the client's `site_url` to the tunnel URL, open the editor, do your work. Set `site_url` back when done. Hot reload still works through the tunnel.
+
+**B. Skip the editor for visual changes.** If you're iterating on text, layout, or styling — none of that needs the editor in the loop. Open `http://localhost:3000` directly and verify there. Only spin up a tunnel when the change is to bridge behavior, annotation patterns, or anything iframe-specific.
+
+### Type-checking without a build
+
+```bash
+npx tsc --noEmit
+```
+
+Catches every TypeScript error a Vercel build would catch, in 5–10 seconds. Run before pushing if you've made changes that touch types — saves a failed Vercel build.
+
+### Batching commits
+
+Lots of small changes don't need lots of small deploys. Make 30 commits over an hour while iterating locally, then push the whole batch:
+
+```bash
+git add -A
+git commit -m "feat: redesign hero + new project cards"  # one commit, one message
+git push
+```
+
+If the work in progress includes some throwaway commits, squash them locally first:
+
+```bash
+git reset --soft HEAD~5      # undoes the last 5 commits, keeps changes staged
+git commit -m "feat: real summary"
+git push
+```
+
+### What never to do
+
+- **Don't `vercel --prod` from the CLI** unless you mean to deploy straight to production. Plain `vercel deploy` creates a preview URL but still uses build credit. Push-via-Git is the standard path.
+- **Don't push speculative debug commits to test on Vercel.** Reproduce locally; only push when the change is real.
+- **Don't ship a feature without running it locally at least once** — the build can pass and the runtime can still throw. `npm run dev` catches things `npx tsc --noEmit` won't.
+
+---
+
 ## Database — only if the site needs its own data
 
 Most marketing sites don't need a database. If your site has a contact form or service requests:
