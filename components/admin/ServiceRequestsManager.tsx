@@ -13,6 +13,8 @@ interface ServiceRequest {
   bikeModel: string
   service: string
   description: string
+  bikeStarts: string | null
+  location: string | null
   status: string
   bookingToken: string | null
   jobDuration: number | null
@@ -117,6 +119,16 @@ export default function ServiceRequestsManager({ requests, clientId, bookingUrl 
             <p>
               <span className="text-gray-500">Bike:</span> {req.bikeYear} {req.bikeMake} {req.bikeModel}
             </p>
+            {req.bikeStarts && (
+              <p>
+                <span className="text-gray-500">Starts?</span> {req.bikeStarts}
+              </p>
+            )}
+            {req.location && (
+              <p>
+                <span className="text-gray-500">Location:</span> {req.location}
+              </p>
+            )}
             <p>
               <span className="text-gray-500">Service:</span> {req.service}
             </p>
