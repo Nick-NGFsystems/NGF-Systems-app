@@ -438,20 +438,20 @@ Catches every TypeScript error a Vercel build would catch, in 5–10 seconds. Ru
 
 ### Batching commits
 
-Lots of small changes don't need lots of small deploys. Make 30 commits over an hour while iterating locally, then push the whole batch:
+Lots of small changes don't need lots of small deploys. Iterate locally with `npm run dev` over an hour, then push the whole batch via the standard NGF push script:
 
 ```bash
-git add -A
-git commit -m "feat: redesign hero + new project cards"  # one commit, one message
-git push
+python3 github-push.py <repo-name> "feat: redesign hero + new project cards"
 ```
 
-If the work in progress includes some throwaway commits, squash them locally first:
+The script handles staging, committing, and pushing in one call — uses the GitHub Git Data API with the PAT in `github-push-config.json`. See your global `~/.claude/CLAUDE.md` for the canonical command.
+
+If you want to clean up a series of WIP commits before pushing, the standard `git` flow still works locally:
 
 ```bash
 git reset --soft HEAD~5      # undoes the last 5 commits, keeps changes staged
-git commit -m "feat: real summary"
-git push
+# now run the push script with one clean commit message:
+python3 github-push.py <repo-name> "feat: real summary"
 ```
 
 ### What never to do
@@ -491,17 +491,28 @@ Most NGF marketing sites don't need auth. If your site has a logged-in admin or 
 
 ---
 
-## Design system — Apple-inspired refined minimalism
+## Design system — universal rules + per-client aesthetic
 
-Default direction unless the client requests something specific:
+Each client site has its own visual identity — colors, typography, density, theme — driven by the brand the client already has. **Do NOT default every new site to a particular look.** Before designing anything, ask the user what direction this client wants, or look at existing client materials (logo, existing site, brand guide) for cues. Examples in our portfolio:
+- **NorthCove Builders** — light theme, deep navy brand color (`#0f2f57`), serif headings, soft shadows on white cards
+- **WrenchTime Cycles** — bright cyan + orange accents, dark slate panels, technical/industrial typography
 
-- **Light theme** — `bg-white`, `bg-gray-50` backgrounds, `text-gray-900` body
-- Single accent color, subtle depth via `shadow-sm` + `rounded-xl` + `border border-gray-100`
-- Generous whitespace, no heavy gradients, no purple, nothing AI-looking
-- Mobile-first responsive: write the mobile layout, scale up with `md:` and `lg:`
-- 44 px minimum touch targets on mobile
+Both follow the universal rules below. Neither is "the NGF look."
 
-**Don't mix dark and light themes in the same site** — pick one and use it everywhere. If a client site has a dark hero, the rest of the site should be dark too. (We've shipped a regression where the homepage was light and intake/booking were dark — confusing for users and an obvious tell.)
+### Universal rules — apply to every client site regardless of aesthetic
+
+- **Tailwind only** — never inline styles, never custom CSS for component-level styling. Brand variables live in `app/globals.css` as CSS custom properties; everything else is Tailwind utility classes.
+- **Pick one theme and commit** — light or dark, then use it everywhere. Don't mix dark and light in the same site. We've shipped this regression: homepage light, intake/booking dark — confusing and an obvious tell.
+- **Mobile-first responsive** — write the mobile layout, scale up with `md:` and `lg:`. Every page must work at 375 px / 768 px / 1280 px.
+- **44 px minimum touch targets** on mobile.
+- **Generous whitespace** — most sites we ship err toward dense; tighten if the brief calls for it but the default is breathing room.
+- **No "AI-looking" filler** — heavy gradients, purple-everywhere, generic stock photography, neon glow effects. Specific brand directions can override (a gym site might want neon), but never reach for these as defaults.
+- **TypeScript interfaces for all component props** — no `any`.
+- **Default to server components** — `'use client'` only when strictly necessary (event handlers, hooks, browser APIs).
+
+### When the client hasn't given a direction
+
+Ask first. If you genuinely have to make a call without input, the safest default is light theme + a single brand-matched accent color + soft cards (`shadow-sm rounded-xl border border-gray-100`) + system-ui sans serif. Refined and uncontroversial. But this is a fallback for "we don't have a brief yet," not "the NGF house style." Any real client deserves a real direction.
 
 ---
 
@@ -572,8 +583,7 @@ When in doubt, copy a pattern from one of these:
 6. **Annotate** every new editable text/image with the four `data-ngf-*` attributes
 7. **Verify** every file you wrote with `cat` after editing — never trust silent writes
 8. **Build** — `npm run build` or `npx tsc --noEmit` to confirm no TS errors
-9. **Commit** — descriptive message: `feat: <description>` / `fix: <description>` / `docs: <description>`
-10. **Push** via `python3 github-push.py <repo-name> "<msg>"` — Vercel auto-deploys
+9. **Commit + push** in one call via `python3 github-push.py <repo-name> "<commit message>"` — the script handles staging, commits with the descriptive message you pass (use `feat:` / `fix:` / `docs:` prefixes), and pushes via the GitHub Git Data API. Vercel auto-deploys (or skips, per the `vercel.json` ignore rules)
 
 ---
 
