@@ -501,7 +501,7 @@ Both follow the universal rules below. Neither is "the NGF look."
 
 ### Universal rules — apply to every client site regardless of aesthetic
 
-- **Tailwind only** — never inline styles, never custom CSS for component-level styling. Brand variables live in `app/globals.css` as CSS custom properties; everything else is Tailwind utility classes.
+- **Tailwind utility classes for all styling.** Brand colors and spacing tokens live in `app/globals.css` as CSS custom properties; consume them via Tailwind's arbitrary-value syntax: `text-[var(--text)]`, `bg-[var(--bg)]`, `border-[var(--line)]`. Two narrow exceptions where `style={{ … }}` is acceptable: (a) when the value is genuinely dynamic from a JS expression — e.g. `style={{ backgroundColor: brandColor }}` where `brandColor` is a prop; (b) when targeting a CSS property Tailwind doesn't have a utility for (rare). Never write a separate CSS file for component-level styling.
 - **Pick one theme and commit** — light or dark, then use it everywhere. Don't mix dark and light in the same site. We've shipped this regression: homepage light, intake/booking dark — confusing and an obvious tell.
 - **Mobile-first responsive** — write the mobile layout, scale up with `md:` and `lg:`. Every page must work at 375 px / 768 px / 1280 px.
 - **44 px minimum touch targets** on mobile.
@@ -521,7 +521,7 @@ Ask first. If you genuinely have to make a call without input, the safest defaul
 These apply to **every** project, client site or main app.
 
 1. TypeScript only — never `.js` files
-2. Tailwind only — never inline styles, never custom CSS for components
+2. Tailwind utility classes for all styling — never write a separate component CSS file. CSS custom properties from `globals.css` are consumed via Tailwind arbitrary-value syntax (`bg-[var(--bg)]`, `text-[var(--text)]`). Inline `style={{ … }}` is permitted only for genuinely dynamic values from JS (e.g. a prop-driven color). See the "Universal rules" in the Design system section for full detail.
 3. `any` is forbidden — use proper interfaces
 4. Never duplicate components, functions, or layouts — check if it exists first
 5. Never hardcode keys, secrets, or connection strings — use env vars
