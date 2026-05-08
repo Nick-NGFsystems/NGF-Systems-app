@@ -547,15 +547,33 @@ function EditPopover({
 }) {
   const [value, setValue] = useState(field.value)
   const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null)
+  // Tracks whether the user actually typed/changed the value while this
+  // popover was open. Used to skip the cancel-path restore when the user
+  // just clicked in and clicked back out — without this, every accidental
+  // open writes preEditValue back into content and can manifest as a
+  // phantom pending change (e.g. when JSON key ordering shifts because
+  // the field wasn't already populated in the section object).
+  const dirtyRef = useRef(false)
 
   useEffect(() => {
     setValue(field.value)
+    dirtyRef.current = false   // reset for new field
     setTimeout(() => inputRef.current?.focus(), 60)
   }, [field.field, field.section])
 
   const handleChange = (v: string) => {
+    dirtyRef.current = true
     setValue(v)
     onChange(v)
+  }
+
+  // Single close handler used by the scrim, the × button, and the Cancel
+  // button. If the user never edited anything, just close — don't write
+  // anything back. If they did edit, fall through to onCancel (which
+  // restores the pre-edit value via preEditValue.current).
+  const handleClose = () => {
+    if (dirtyRef.current) onCancel()
+    else onDone()
   }
 
   // The popover now always centers on the viewport at a comfortable size
@@ -592,7 +610,7 @@ function EditPopover({
       <div
         className="fixed inset-0 z-50"
         style={{ background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(2px)' }}
-        onClick={onCancel}
+        onClick={handleClose}
       />
 
       {/* Card */}
@@ -613,7 +631,7 @@ function EditPopover({
             <p className="text-lg font-semibold text-gray-900 mt-0.5 truncate">{field.label}</p>
           </div>
           <button
-            onClick={onCancel}
+            onClick={handleClose}
             aria-label="Close"
             className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 text-xl leading-none flex-shrink-0 transition-colors"
           >
@@ -674,7 +692,7 @@ function EditPopover({
         {/* Actions */}
         <div className="px-6 py-4 flex gap-3 flex-shrink-0 border-t border-gray-100 bg-gray-50/50">
           <button
-            onClick={onCancel}
+            onClick={handleClose}
             className="flex-1 h-11 rounded-xl text-sm font-medium text-gray-700 bg-white border border-gray-200 hover:bg-gray-100 transition-colors"
           >
             Cancel
