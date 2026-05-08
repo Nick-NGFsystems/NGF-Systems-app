@@ -767,6 +767,7 @@ export default function WebsiteEditorPage() {
   const [versions,       setVersions]       = useState<{ id: string; published_at: string; note: string | null }[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [revertingId,    setRevertingId]    = useState<string | null>(null)
+  const [resetting,      setResetting]      = useState(false)
 
   // Published content with schema defaults applied — used as the baseline for
   // "pending changes" comparison. This prevents schema-initialized empty strings
@@ -1051,6 +1052,21 @@ export default function WebsiteEditorPage() {
       setRevertingId(null)
     }
   }, [loadVersions, reloadPreview])
+
+  const restoreToOriginals = useCallback(async () => {
+    if (!confirm('Restore to originals? This will clear all your published content and images, reverting the live site to its default text and photos. This cannot be undone.')) return
+    setResetting(true)
+    try {
+      const res = await fetch('/api/portal/website/reset', { method: 'POST' })
+      if (res.ok) {
+        location.reload()
+      } else {
+        alert('Reset failed — please try again.')
+      }
+    } finally {
+      setResetting(false)
+    }
+  }, [])
 
   // Ask the iframe to scroll a specific field into view and flash-highlight it.
   const scrollToField = useCallback((sectionKey: string, fieldKey?: string) => {
@@ -1600,6 +1616,21 @@ export default function WebsiteEditorPage() {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Restore to originals */}
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={restoreToOriginals}
+              disabled={resetting}
+              className="w-full h-8 rounded-lg text-[11px] font-medium text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {resetting ? 'Restoring…' : 'Restore to originals'}
+            </button>
+            <p className="mt-1 text-[10px] text-gray-400 text-center">
+              Clears all saved content — site reverts to default text &amp; images
+            </p>
           </div>
 
           {/* Hint */}
