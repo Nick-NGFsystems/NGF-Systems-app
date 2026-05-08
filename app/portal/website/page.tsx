@@ -1282,12 +1282,20 @@ export default function WebsiteEditorPage() {
       }
 
       if (e.data?.type === 'fieldClick') {
-        const { section, field, currentValue, elementRect } = e.data as {
+        const { section, field, currentValue, elementRect, fieldType: bridgeFieldType } = e.data as {
           section: string; field: string; currentValue: string
           elementRect?: ClickField['elementRect']
+          fieldType?: string
         }
         const fieldPart  = field.split('.').pop() || field
-        const fieldType  = resolveFieldType(schema, section, field)
+        // resolveFieldType works from the scraped schema (home page only).
+        // For fields on sub-pages (e.g. About team photos) the schema won't
+        // have them, so it returns 'textarea'. Use the bridge-reported type
+        // (from data-ngf-type on the DOM element) as a fallback in that case.
+        const schemaType = resolveFieldType(schema, section, field)
+        const fieldType  = (schemaType === 'textarea' && bridgeFieldType && bridgeFieldType !== 'textarea')
+          ? bridgeFieldType as FieldType
+          : schemaType
         const iframeRect = iframeRef.current?.getBoundingClientRect() ?? new DOMRect()
         const pos        = computePopoverPosition(iframeRect, elementRect)
 
