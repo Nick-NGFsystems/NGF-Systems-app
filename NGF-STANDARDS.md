@@ -351,6 +351,81 @@ Put `data-ngf-group` on the container, declare each item's sub-fields in `data-n
 4. **Don't omit `data-ngf-label` or `data-ngf-section`.** The scraper silently skips elements missing either, and they won't appear in the editor sidebar.
 5. **`data-ngf-section` is the human-readable label.** The grouping key is always derived from the first dot-segment of `data-ngf-field` (e.g. `hero.headline` → section key `hero`, regardless of what `data-ngf-section` says).
 
+### Annotation pitfalls — patterns that break the editor
+
+These are real bugs we've debugged in production sites. Each one looks plausible at first but breaks something in the editor. Avoid them.
+
+#### One DOM element per field path. No responsive twins.
+
+Don't render the same field as two elements with different responsive visibility, both annotated:
+
+```tsx
+// ❌ BREAKS — bridge stacks both in edit mode, el.textContent reads both
+<button>
+  <span className="md:hidden" data-ngf-field="nav.cta" ...>Connect</span>
+  <span className="hidden md:inline" data-ngf-field="nav.cta" ...>Let's connect!</span>
+</button>
+
+// ❌ ALSO BREAKS — annotation on wrapper, two text spans inside →
+// el.textContent concatenates "ConnectLet's connect!" into the cached default
+<a data-ngf-field="nav.cta" ...>
+  <span className="md:hidden">Connect</span>
+  <span className="hidden md:inline">Let's connect!</span>
+</a>
+
+// ✅ CORRECT — one element, one annotation, one label that works at all breakpoints
+<a data-ngf-field="nav.cta" ...>{ctaLabel}</a>
+```
+
+If a label genuinely needs to differ between breakpoints, render only the longer one and trust CSS truncation. Do not annotate two variants.
+
+#### Don't spread `data-ngf-*` props onto multiple elements
+
+```tsx
+// ❌ BREAKS — same field annotated on both <p> elements, bridge reads
+// the first one (the truncated mobile version) as the field value
+<p className="md:hidden line-clamp-3" {...editorProps}>{shortBio}</p>
+<p className="hidden md:block" {...editorProps}>{fullBio}</p>
+
+// ✅ CORRECT — annotate only the canonical (full-text) element
+<p className="md:hidden line-clamp-3">{shortBio}</p>
+<p className="hidden md:block" {...editorProps}>{fullBio}</p>
+```
+
+`{...editorProps}` is convenient but easy to over-spread. Search the codebase for any helper that bundles `data-ngf-*` attributes and verify it's only applied to one DOM node per field path.
+
+#### `data-ngf-group` goes on ONE container, not both responsive layouts
+
+```tsx
+// ❌ BREAKS — scraper finds two "process.steps" group declarations →
+// editor sidebar shows two duplicate "Process Steps" sections
+<div data-ngf-group="process.steps" className="hidden md:grid">...desktop cards...</div>
+<div data-ngf-group="process.steps" className="md:hidden">...mobile cards...</div>
+
+// ✅ CORRECT — declare the group ONCE (on the desktop container).
+// Individual `data-ngf-field="process.steps.0.title"` annotations on
+// mobile card text ARE fine — the bridge dedupes by path and updates
+// all matching elements on contentUpdate, keeping mobile + desktop in sync.
+<div data-ngf-group="process.steps" data-ngf-item-fields='[...]' className="hidden md:grid">...</div>
+<div className="md:hidden">...mobile cards with field annotations only...</div>
+```
+
+The leaf scraper dedupes individual field annotations (first occurrence wins). The group scraper does not — every `data-ngf-group` declaration becomes a separate sidebar entry.
+
+#### Annotate the container or one of its descendants — never both
+
+If a wrapper has `data-ngf-field` AND a child also has `data-ngf-field` for the same path, the bridge gets confused about which one to read/write. Annotate at exactly one level.
+
+#### Edit-mode cosmetic differences are normal
+
+The bridge force-reveals containers hidden via `opacity-0`, `pointer-events-none`, `aria-expanded="false"`, etc. when they contain `data-ngf-field` elements — so dropdowns, accordions, and modal panels become editable without site-specific code.
+
+Side effect: anything with state-dependent styling (e.g. a button that squares off when a dropdown below it opens) will look slightly different in the editor preview than on the live site. **This is cosmetic only.** Published content is unaffected. Don't try to fix it on the client site unless you find a way to do it via `[data-ngf-edit="true"]` selectors that gracefully degrade.
+
+#### `el.textContent` reads ALL descendants, including hidden ones
+
+When the bridge caches the default value of an annotated element on mount, it walks the entire subtree. So an annotated `<a>` containing two visually-hidden `<span>` children with text will cache "TextOneTextTwo" as the default. Same applies to image fields — only the annotated `<img>` itself is read for `src`. Keep annotations on leaf-ish nodes; if you must annotate a wrapper, make sure it has only one text-bearing descendant.
+
 ---
 
 ## Setup checklist for a new NGF client website
@@ -462,6 +537,210 @@ python3 github-push.py <repo-name> "feat: real summary"
 
 ---
 
+## SEO & analytics — required on every NGF client site
+
+Every client site ships with the same baseline: page metadata, a sitemap, a robots file, structured data for the business, and Google Analytics 4. This is the difference between a site that can be found in Google and one that can't, so it's not optional — it's part of the standard build.
+
+The patterns below are universal. Drop them into any new site verbatim and customize per client.
+
+### 1. Page metadata — every page
+
+Next.js App Router uses the `metadata` export for SEO tags. The root `app/layout.tsx` sets defaults; individual pages override per-page.
+
+```typescript
+// app/layout.tsx — root defaults
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = {
+  metadataBase: new URL(`https://${process.env.NEXT_PUBLIC_SITE_URL ?? 'example.com'}`),
+  title: {
+    default: 'Client Business Name — Tagline',
+    template: '%s · Client Business Name',
+  },
+  description: 'One-sentence description of what the business does and where.',
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    siteName: 'Client Business Name',
+    images: ['/og-image.jpg'], // 1200x630 in /public
+  },
+  twitter: { card: 'summary_large_image' },
+  robots: { index: true, follow: true },
+}
+```
+
+```typescript
+// app/services/page.tsx — per-page overrides
+export const metadata: Metadata = {
+  title: 'Services',
+  description: 'What we do, in detail. Mention the key service + the location.',
+}
+```
+
+### 2. Sitemap — `app/sitemap.ts`
+
+Next.js auto-routes this to `/sitemap.xml`. Update the routes array whenever a new page is added.
+
+```typescript
+// app/sitemap.ts
+import type { MetadataRoute } from 'next'
+
+export default function sitemap(): MetadataRoute.Sitemap {
+  const base = `https://${process.env.NEXT_PUBLIC_SITE_URL ?? 'example.com'}`
+  const now = new Date()
+
+  return [
+    { url: `${base}/`,         lastModified: now, changeFrequency: 'weekly',  priority: 1.0 },
+    { url: `${base}/services`, lastModified: now, changeFrequency: 'monthly', priority: 0.8 },
+    { url: `${base}/about`,    lastModified: now, changeFrequency: 'monthly', priority: 0.6 },
+    { url: `${base}/contact`,  lastModified: now, changeFrequency: 'yearly',  priority: 0.5 },
+  ]
+}
+```
+
+### 3. Robots — `app/robots.ts`
+
+```typescript
+// app/robots.ts
+import type { MetadataRoute } from 'next'
+
+export default function robots(): MetadataRoute.Robots {
+  const base = `https://${process.env.NEXT_PUBLIC_SITE_URL ?? 'example.com'}`
+  return {
+    rules: { userAgent: '*', allow: '/', disallow: ['/api/', '/admin/'] },
+    sitemap: `${base}/sitemap.xml`,
+  }
+}
+```
+
+### 4. Structured data — JSON-LD `LocalBusiness`
+
+This is the single highest-ROI SEO action for local businesses. Feeds the Google Maps panel and "near me" search results. Drop it in the root layout's `<body>` so every page emits it.
+
+```tsx
+// components/StructuredData.tsx
+export default function StructuredData() {
+  const data = {
+    '@context': 'https://schema.org',
+    '@type': 'LocalBusiness',         // or 'HomeAndConstructionBusiness', 'AutoRepair', etc.
+    name: 'Client Business Name',
+    url: `https://${process.env.NEXT_PUBLIC_SITE_URL ?? 'example.com'}`,
+    telephone: '+1-555-555-5555',
+    address: {
+      '@type': 'PostalAddress',
+      streetAddress: '123 Main St',
+      addressLocality: 'City',
+      addressRegion: 'ST',
+      postalCode: '12345',
+      addressCountry: 'US',
+    },
+    openingHoursSpecification: [
+      { '@type': 'OpeningHoursSpecification',
+        dayOfWeek: ['Monday','Tuesday','Wednesday','Thursday','Friday'],
+        opens: '08:00', closes: '17:00' },
+    ],
+    priceRange: '$$',
+    image: `https://${process.env.NEXT_PUBLIC_SITE_URL}/og-image.jpg`,
+  }
+  return (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }}
+    />
+  )
+}
+```
+
+Mount in `app/layout.tsx`:
+```tsx
+<body>
+  <StructuredData />
+  {/* rest of layout */}
+</body>
+```
+
+Pick the `@type` that matches the client. Common ones: `LocalBusiness` (generic), `HomeAndConstructionBusiness` (builders), `AutoRepair` (mechanics), `Restaurant`, `Dentist`, `RealEstateAgent`. Full list at schema.org/docs/full.html.
+
+### 5. Google Analytics 4 — `gtag`
+
+Each client gets their own GA4 property. The measurement ID is exposed as `NEXT_PUBLIC_GA_ID` so the client-side gtag snippet can read it.
+
+```tsx
+// components/GoogleAnalytics.tsx
+import Script from 'next/script'
+
+export default function GoogleAnalytics() {
+  const id = process.env.NEXT_PUBLIC_GA_ID
+  if (!id) return null
+
+  return (
+    <>
+      <Script
+        src={`https://www.googletagmanager.com/gtag/js?id=${id}`}
+        strategy="afterInteractive"
+      />
+      <Script id="ga4-init" strategy="afterInteractive">{`
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', '${id}');
+      `}</Script>
+    </>
+  )
+}
+```
+
+Mount in `app/layout.tsx`:
+```tsx
+<body>
+  <GoogleAnalytics />
+  <StructuredData />
+  {/* rest of layout */}
+</body>
+```
+
+### 6. Required env vars (per client site)
+
+Add to the site's Vercel env vars (Production + Preview both):
+
+```
+NEXT_PUBLIC_SITE_URL=client-domain.com
+NEXT_PUBLIC_GA_ID=G-XXXXXXXXXX
+```
+
+`NEXT_PUBLIC_SITE_URL` was already required for the editor integration. `NEXT_PUBLIC_GA_ID` is the GA4 measurement ID (starts with `G-`).
+
+### 7. Per-client GA4 setup — what Nick has to do once per site
+
+**Inside Google Analytics:**
+1. Admin → Create Property (one per client)
+2. Add a Web data stream pointing at the client's domain → copy the **measurement ID** (`G-...`) → paste into the client site's `NEXT_PUBLIC_GA_ID` Vercel env var
+3. Admin → Property Access Management → grant the NGF service account email **Viewer** role (the email comes from `GOOGLE_SERVICE_ACCOUNT_JSON` in the NGF main app — check the `client_email` field of that JSON)
+4. Copy the **numeric property ID** (Admin → Property Settings → Property ID, looks like `533573096`)
+
+**Inside the NGF admin portal (`app.ngfsystems.com/admin/clients/<id>`):**
+5. Paste the numeric property ID into the **GA4 Property ID** field under Website Connections → Save Links
+
+That's it. The client now sees their own site analytics in their portal dashboard at `app.ngfsystems.com/portal/portal-dashboard`. They never touch GA4 directly.
+
+### 8. SEO checklist for any new site
+
+Before flipping a new client site live:
+
+- [ ] `app/layout.tsx` has root `metadata` with title template, description, openGraph, twitter
+- [ ] At least the homepage, services, about, contact have per-page `metadata.title` + `description`
+- [ ] `app/sitemap.ts` exists and lists every public page
+- [ ] `app/robots.ts` exists and points to the sitemap
+- [ ] `<StructuredData />` is mounted in root layout with the correct `@type` for the business
+- [ ] `<GoogleAnalytics />` is mounted in root layout
+- [ ] `/public/og-image.jpg` exists (1200×630, brand-consistent)
+- [ ] `/public/favicon.ico` + `/public/icon.png` (Next 16 picks these up automatically)
+- [ ] `NEXT_PUBLIC_SITE_URL` and `NEXT_PUBLIC_GA_ID` set in Vercel env vars
+- [ ] GA4 property ID stored in NGF admin portal (so the client sees metrics in their dashboard)
+- [ ] After deploy: submit the sitemap URL to [Google Search Console](https://search.google.com/search-console) once
+
+---
+
 ## Database — only if the site needs its own data
 
 Most marketing sites don't need a database. If your site has a contact form or service requests:
@@ -488,6 +767,107 @@ Most NGF marketing sites don't need auth. If your site has a logged-in admin or 
 - Layout components must NEVER do auth checks — middleware handles all auth.
 - After setting a role, the user must sign out and back in for it to take effect.
 - Public routes (e.g. tokenized booking links sent via email — customers don't have accounts) MUST be in the middleware's `createRouteMatcher` whitelist or they'll be redirected to sign-in.
+
+---
+
+## Security baseline — required on every NGF site
+
+Every NGF site (client marketing site or main app) ships with the same baseline. None of these are optional. The reference implementation is `NGF-Systems-app/next.config.js` — copy from there.
+
+### 1. Security headers in `next.config.{js,ts}`
+
+```js
+async headers() {
+  return [{
+    source: '/(.*)',
+    headers: [
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      { key: 'X-XSS-Protection', value: '1; mode=block' },
+      { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+      {
+        key: 'Content-Security-Policy',
+        value: [
+          "default-src 'self'",
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.com https://*.clerk.accounts.dev https://js.stripe.com https://www.googletagmanager.com",
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' data: blob: https:",
+          "font-src 'self' data:",
+          "connect-src 'self' https://*.clerk.com https://*.clerk.accounts.dev https://api.stripe.com https://www.google-analytics.com https://*.googletagmanager.com https://*.vercel-storage.com https://*.public.blob.vercel-storage.com https://app.ngfsystems.com",
+          "frame-src 'self' https://*.stripe.com https://challenges.cloudflare.com",
+          "object-src 'none'",
+          "base-uri 'self'",
+          "form-action 'self'",
+        ].join('; '),
+      },
+    ],
+  }]
+}
+```
+
+The `connect-src` entry for `https://app.ngfsystems.com` is what allows client sites to fetch published content from the NGF content API — without it, the editor integration breaks.
+
+`'unsafe-inline'` and `'unsafe-eval'` are required by Clerk and Next.js runtime chunks. Tightening to nonce-based CSP is a future hardening pass.
+
+### 2. The portal-editor frame-ancestors carve-out
+
+Client sites still need this header (it's on TOP of the global CSP — multiple CSP headers are intersected by the browser):
+
+```js
+{
+  key: 'Content-Security-Policy',
+  value: "frame-ancestors 'self' https://app.ngfsystems.com https://*.vercel.app",
+}
+```
+
+Without it, the portal editor's live preview iframe is blocked. Already covered in the editor-integration section above.
+
+### 3. Server-side input validation on every state-changing endpoint
+
+API routes that accept POST/PATCH/PUT bodies MUST sanitize the payload before persisting. Three rules:
+
+1. **Validate root shape.** Reject with 400 if the body isn't the expected type (object vs array, etc.).
+2. **Strip non-conforming fields.** Don't persist arbitrary keys — accept only the structure the client legitimately sends.
+3. **Cap payload size.** A hard upper bound (e.g. 250 KB serialized) prevents DB bloat from abusive payloads.
+
+Reference: the `sanitizeContent` helper in `NGF-Systems-app/app/api/portal/website/route.ts`.
+
+### 4. Prototype-pollution defense
+
+Strip dangerous keys (`__proto__`, `constructor`, `prototype`) at every depth when accepting JSON from clients. One liner:
+
+```ts
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+// in any object iteration:
+if (DANGEROUS_KEYS.has(key)) continue
+```
+
+### 5. SSRF guard on any server-side `fetch()` of a user-influenced URL
+
+The schema scraper, image proxies, webhook callbacks, anything that fetches a URL someone else can set — must reject:
+
+- Non-`http(s)` protocols
+- `localhost`, `0.0.0.0`, `::1`
+- Private IPv4 ranges (`127.`, `10.`, `192.168.`, `169.254.`, `172.16.0.0/12`)
+- Private IPv6 (`fc::/7`, `fe80::/10`)
+
+The `169.254.169.254` carve-out matters specifically — that's the AWS/GCP cloud metadata endpoint, the textbook SSRF target. Reference: the `isSafeScrapeUrl` helper in `NGF-Systems-app/app/api/portal/website/route.ts`.
+
+### 6. Identity from session, not from input
+
+Already in the Auth section above, but worth restating: never trust a `client_id` (or `user_id`, `account_id`, etc.) from the request body, query string, or URL params for authorization decisions. Always resolve from the authenticated session token. Even on `/api/*` routes — middleware role checks only protect page paths, not API paths.
+
+### 7. Webhook signature verification
+
+Stripe webhooks: `stripe.webhooks.constructEvent(rawBody, signature, secret)`. Clerk webhooks: `svix` library with `CLERK_WEBHOOK_SECRET`. Never trust webhook bodies without verification — anyone with the URL can POST to them.
+
+### 8. Env vars never in the bundle
+
+`NEXT_PUBLIC_` prefix means the value ships in the JS bundle, accessible to anyone. Use this for genuinely-public values only (Clerk publishable key, GA4 measurement ID, site URL). Secrets — Stripe secret key, Resend API key, service-account JSON, database URLs — must NOT have the `NEXT_PUBLIC_` prefix.
+
+### 9. Periodic third-party audit
+
+Run a security audit (manual or AI-driven) on each site at least once per major feature release. Confirm: CSP is intact, no secrets in bundles, all POSTs validate input, no admin routes are reachable as a client.
 
 ---
 
@@ -560,6 +940,12 @@ NGF main app additionally:
 | Role not appearing in sessionClaims | Customize Clerk session token (see Auth section) |
 | Role change not working | User must sign out and back in |
 | Prisma pulling v7 | Use `./node_modules/.bin/prisma`, never `npx prisma` |
+| Editor sidebar shows TWO entries for the same section | `data-ngf-group` declared on both desktop and mobile responsive containers. Declare once on the desktop container, leave individual item field annotations on both layouts (those dedupe correctly) |
+| Nav button text reads as "ConnectLet's connect!" or similar concatenation | Two responsive twin spans both annotated, OR one annotation on a wrapper that contains hidden-text descendants. `el.textContent` walks the full subtree. Consolidate to one DOM element per field path |
+| Editor preview button/dropdown styling looks slightly off | Bridge force-reveals hidden state-dependent containers (`opacity-0`, `aria-expanded="false"`, etc.) so they're editable. State-dependent CSS (e.g. dropdown-open border-radius changes) doesn't fire because no real state change occurred. Cosmetic only — published site is unaffected |
+| Image upload button returns "Blob storage is not configured" | Vercel Blob token not provisioned. Vercel → ngf-systems-app → Storage → Create Blob → set access **Public** (not Private — image URLs need to be readable from public client sites) → Connect Project → redeploy |
+| Pending change appears after just clicking a field with no edits | Old version of the editor's EditPopover. The Cancel/× handler used to write `preEditValue` back unconditionally; current version tracks a dirty flag and skips the write when nothing changed. Pull latest |
+| Phantom modifications in `git status` after AI edit session | CRLF/LF line-ending mismatch from Cowork mount writes. Diff every line as `-`/`+` with identical content. Either commit them as a one-time noise commit or `git checkout -- <files>` to discard |
 
 ---
 

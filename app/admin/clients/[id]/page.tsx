@@ -138,6 +138,7 @@ export default async function ClientDetailPage({ params }: ClientDetailPageProps
           initialDatabaseUrl={clientConfig.database_url}
           initialSiteUrl={clientConfig.site_url}
           initialSiteRepo={clientConfig.site_repo}
+          initialGa4PropertyId={clientConfig.ga4_property_id}
         />
       </div>
     </section>

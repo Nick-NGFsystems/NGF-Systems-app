@@ -45,6 +45,7 @@ model ClientConfig {
   site_url         String?
   site_repo        String?
   template_id      String?  @default("generic")
+  ga4_property_id  String?
   created          DateTime @default(now())
   updated          DateTime @updatedAt
   client           Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)

@@ -3,6 +3,110 @@ import { auth } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Security helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Keys that can be exploited for prototype pollution. Stripped at every depth. */
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
+/** Per-field character cap. 50 KB is plenty for any single piece of marketing copy. */
+const MAX_FIELD_CHARS = 50_000
+/** Per-array item cap. */
+const MAX_ARRAY_ITEMS = 100
+/** Total serialized payload cap. 250 KB is generous for legitimate use. */
+const MAX_PAYLOAD_BYTES = 250_000
+
+/**
+ * Sanitize a content payload from the editor. The shape we accept is exactly
+ * what the editor produces:
+ *   { [sectionKey]: { [fieldKey]: string | boolean | Array<{ [k]: string | boolean }> } }
+ *
+ * Anything that doesn't match this shape — top-level scalars, deeply nested
+ * objects, numbers in field values, prototype-polluting keys, single fields
+ * exceeding 50 KB — is silently dropped so a single rogue key doesn't reject
+ * an otherwise legitimate save. Returns a cleaned object regardless of input
+ * structure. The caller is responsible for verifying the input root is an
+ * object and for the total-payload-size check.
+ */
+// Prisma's InputJsonValue type is verbose; ContentJson keeps the call site clean.
+type ContentJson = Record<string, unknown>
+
+function sanitizeContent(raw: ContentJson): ContentJson {
+  const out: ContentJson = {}
+
+  for (const [sectionKey, sectionValue] of Object.entries(raw)) {
+    if (DANGEROUS_KEYS.has(sectionKey)) continue
+    if (!sectionValue || typeof sectionValue !== 'object' || Array.isArray(sectionValue)) continue
+
+    const cleanedSection: ContentJson = {}
+    for (const [fieldKey, fieldValue] of Object.entries(sectionValue as ContentJson)) {
+      if (DANGEROUS_KEYS.has(fieldKey)) continue
+
+      if (typeof fieldValue === 'string') {
+        if (fieldValue.length > MAX_FIELD_CHARS) continue
+        cleanedSection[fieldKey] = fieldValue
+      } else if (typeof fieldValue === 'boolean') {
+        cleanedSection[fieldKey] = fieldValue
+      } else if (Array.isArray(fieldValue)) {
+        const items = fieldValue.slice(0, MAX_ARRAY_ITEMS)
+        const cleanedItems: ContentJson[] = []
+        for (const item of items) {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+          const cleanedItem: ContentJson = {}
+          for (const [subKey, subValue] of Object.entries(item as ContentJson)) {
+            if (DANGEROUS_KEYS.has(subKey)) continue
+            if (typeof subValue === 'string') {
+              if (subValue.length > MAX_FIELD_CHARS) continue
+              cleanedItem[subKey] = subValue
+            } else if (typeof subValue === 'boolean') {
+              cleanedItem[subKey] = subValue
+            }
+            // Other types (numbers, nested objects, null) silently dropped.
+          }
+          cleanedItems.push(cleanedItem)
+        }
+        cleanedSection[fieldKey] = cleanedItems
+      }
+      // Other top-level field types silently dropped.
+    }
+
+    out[sectionKey] = cleanedSection
+  }
+
+  return out
+}
+
+/**
+ * SSRF guard for the schema scraper. Only allow http(s) URLs that don't
+ * resolve (string-wise) to localhost or RFC 1918 / link-local IPs. Cloud
+ * metadata endpoints (169.254.169.254) are blocked. This is a string-level
+ * check — DNS rebinding could still defeat it, but the higher mitigation
+ * (site_url is admin-only) handles that.
+ */
+function isSafeScrapeUrl(rawUrl: string): boolean {
+  let url: URL
+  try {
+    const normalized = rawUrl.trim().replace(/\/$/, '')
+    const base = normalized.startsWith('http') ? normalized : `https://${normalized}`
+    url = new URL(base)
+  } catch {
+    return false
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+
+  const hostname = url.hostname.toLowerCase()
+  if (hostname === 'localhost' || hostname === '0.0.0.0' || hostname === '::1') return false
+
+  // Private IPv4 ranges + AWS / cloud metadata
+  if (/^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(hostname)) return false
+
+  // Private IPv6 ranges (link-local, ULA)
+  if (/^(fc|fd|fe80:)/.test(hostname)) return false
+
+  return true
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Schema types (inline — no longer imported from lib/templates)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -63,6 +167,9 @@ export interface SiteSchema {
 interface ItemFieldDef { key: string; label: string; type: FieldType }
 
 async function scrapeSiteHtml(siteUrl: string): Promise<string | null> {
+  // SSRF guard: refuse to fetch URLs targeting private/local network ranges.
+  // site_url is admin-set so this is defense-in-depth, not the primary control.
+  if (!isSafeScrapeUrl(siteUrl)) return null
   try {
     const rawUrl = siteUrl.trim().replace(/\/$/, '')
     const base   = rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`
@@ -412,16 +519,34 @@ export async function POST(request: NextRequest) {
     })
     if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 })
 
-    const { content } = await request.json()
+    const body = (await request.json()) as { content?: unknown }
+    const rawContent = body.content
 
-    // Saves to draft_content only — never touches published content
+    // Reject only if the root isn't an object — that's a malformed request.
+    if (!rawContent || typeof rawContent !== 'object' || Array.isArray(rawContent)) {
+      return NextResponse.json({ error: 'Content must be an object' }, { status: 400 })
+    }
+
+    // Strip fields with non-string/-boolean values, drop prototype-polluting
+    // keys, cap array length and per-field size. Anything malformed inside is
+    // silently dropped to keep legitimate edits flowing.
+    const cleanedContent = sanitizeContent(rawContent as Record<string, unknown>)
+
+    // Hard cap on serialized size after cleanup.
+    if (JSON.stringify(cleanedContent).length > MAX_PAYLOAD_BYTES) {
+      return NextResponse.json({ error: 'Content payload exceeds the 250 KB limit' }, { status: 400 })
+    }
+
+    // Saves to draft_content only — never touches published content. The cast
+    // tells Prisma "trust me, this is JSON-shaped" since Record<string,unknown>
+    // doesn't structurally match Prisma.InputJsonValue without it.
     await db.websiteContent.upsert({
       where:  { client_id: client.id },
-      update: { draft_content: content },
+      update: { draft_content: cleanedContent as object },
       create: {
         client_id:     client.id,
         content:       {},
-        draft_content: content,
+        draft_content: cleanedContent as object,
       },
     })
 

@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { getClientConfig } from '@/lib/portal'
 import { db } from '@/lib/db'
 import Link from 'next/link'
+import PortalSiteAnalyticsWidget from '@/components/portal/PortalSiteAnalyticsWidget'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,6 +28,7 @@ export default async function PortalDashboardPage() {
   const config = client.config
   const hasWebsite = !!config?.page_website
   const hasSiteUrl = !!config?.site_url
+  const hasAnalytics = hasWebsite && !!config?.ga4_property_id
 
   const quickActions = [
     hasWebsite ? {
@@ -99,6 +101,10 @@ export default async function PortalDashboardPage() {
           )}
         </article>
       </div>
+
+      {hasAnalytics && (
+        <PortalSiteAnalyticsWidget siteLabel={config?.site_url ?? null} />
+      )}
 
       {hasWebsite && (
         <section className="rounded-xl border border-blue-100 bg-blue-50 p-5">

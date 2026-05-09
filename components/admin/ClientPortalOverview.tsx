@@ -13,6 +13,7 @@ interface ClientPortalOverviewProps {
   initialDatabaseUrl?: string | null
   initialSiteUrl?: string | null
   initialSiteRepo?: string | null
+  initialGa4PropertyId?: string | null
 }
 
 interface ApiResponse {
@@ -28,11 +29,13 @@ export default function ClientPortalOverview({
   initialDatabaseUrl,
   initialSiteUrl,
   initialSiteRepo,
+  initialGa4PropertyId,
 }: ClientPortalOverviewProps) {
   const router = useRouter()
   const [databaseUrl, setDatabaseUrl] = useState(initialDatabaseUrl ?? '')
   const [siteUrl, setSiteUrl] = useState(initialSiteUrl ?? '')
   const [siteRepo, setSiteRepo] = useState(initialSiteRepo ?? '')
+  const [ga4PropertyId, setGa4PropertyId] = useState(initialGa4PropertyId ?? '')
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -48,6 +51,7 @@ export default function ClientPortalOverview({
           database_url: databaseUrl,
           site_url: siteUrl,
           site_repo: siteRepo,
+          ga4_property_id: ga4PropertyId,
         }),
       })
 
@@ -145,6 +149,25 @@ export default function ClientPortalOverview({
               placeholder="owner/repo"
               className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700">GA4 Property ID</label>
+            <input
+              type="text"
+              value={ga4PropertyId}
+              onChange={(event) => setGa4PropertyId(event.target.value)}
+              placeholder="e.g. 533573096"
+              className="mt-1 h-11 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-blue-500 focus:outline-none"
+              inputMode="numeric"
+            />
+            <p className="mt-1 text-xs text-gray-500 leading-relaxed">
+              Numeric GA4 property ID from Google Analytics → Admin → Property Settings. Once set, the client will see their site analytics in their portal dashboard.
+              <strong className="block mt-1 text-amber-700">
+                Required:&nbsp;
+              </strong>
+              Grant the NGF service account email <code className="rounded bg-gray-100 px-1 font-mono">Viewer</code> access on this GA4 property (Admin → Property Access Management).
+            </p>
           </div>
 
           <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">

@@ -10,6 +10,32 @@ const nextConfig = {
           { key: 'X-XSS-Protection', value: '1; mode=block' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          // Global CSP — does NOT set frame-ancestors here (those are
+          // per-route below). When multiple CSP headers are sent, browsers
+          // intersect the directives, so the per-route frame-ancestors
+          // rules continue to apply on top of this baseline.
+          {
+            key: 'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              // 'unsafe-inline' + 'unsafe-eval' are required by Clerk and Next's
+              // dev/runtime chunks. Tightening to nonce-based CSP is a future
+              // hardening pass.
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.com https://*.clerk.accounts.dev https://js.stripe.com https://www.googletagmanager.com",
+              "style-src 'self' 'unsafe-inline'",
+              // data: + blob: for icons & local previews; https: covers Vercel
+              // Blob, Clerk avatars, and any uploaded image URL.
+              "img-src 'self' data: blob: https:",
+              "font-src 'self' data:",
+              "connect-src 'self' https://*.clerk.com https://*.clerk.accounts.dev https://api.stripe.com https://www.google-analytics.com https://*.googletagmanager.com https://*.vercel-storage.com https://*.public.blob.vercel-storage.com",
+              // frame-src https: lets the portal editor iframe arbitrary client
+              // sites; specific carve-outs for Stripe Elements + Clerk Captcha.
+              "frame-src 'self' https: https://*.stripe.com https://challenges.cloudflare.com",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+            ].join('; '),
+          },
         ],
       },
       {
