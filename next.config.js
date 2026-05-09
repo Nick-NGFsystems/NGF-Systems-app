@@ -21,16 +21,20 @@ const nextConfig = {
               // 'unsafe-inline' + 'unsafe-eval' are required by Clerk and Next's
               // dev/runtime chunks. Tightening to nonce-based CSP is a future
               // hardening pass.
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.com https://*.clerk.accounts.dev https://js.stripe.com https://www.googletagmanager.com",
+              // Clerk Frontend API runs on a custom subdomain (clerk.<your-app-domain>)
+              // when using a production publishable key. Both script-src AND connect-src
+              // must allow it or sign-in fails silently with CSP-blocked requests.
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.com https://*.clerk.accounts.dev https://clerk.app.ngfsystems.com https://js.stripe.com https://www.googletagmanager.com",
               "style-src 'self' 'unsafe-inline'",
               // data: + blob: for icons & local previews; https: covers Vercel
               // Blob, Clerk avatars, and any uploaded image URL.
               "img-src 'self' data: blob: https:",
               "font-src 'self' data:",
-              "connect-src 'self' https://*.clerk.com https://*.clerk.accounts.dev https://api.stripe.com https://www.google-analytics.com https://*.googletagmanager.com https://*.vercel-storage.com https://*.public.blob.vercel-storage.com",
+              "connect-src 'self' https://*.clerk.com https://*.clerk.accounts.dev https://clerk.app.ngfsystems.com https://api.stripe.com https://www.google-analytics.com https://*.googletagmanager.com https://*.vercel-storage.com https://*.public.blob.vercel-storage.com",
               // frame-src https: lets the portal editor iframe arbitrary client
               // sites; specific carve-outs for Stripe Elements + Clerk Captcha.
-              "frame-src 'self' https: https://*.stripe.com https://challenges.cloudflare.com",
+              "frame-src 'self' https: https://*.stripe.com https://challenges.cloudflare.com https://clerk.app.ngfsystems.com",
+              "worker-src 'self' blob:",
               "object-src 'none'",
               "base-uri 'self'",
               "form-action 'self'",
