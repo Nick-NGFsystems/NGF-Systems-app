@@ -809,6 +809,8 @@ The `connect-src` entry for `https://app.ngfsystems.com` is what allows client s
 
 `'unsafe-inline'` and `'unsafe-eval'` are required by Clerk and Next.js runtime chunks. Tightening to nonce-based CSP is a future hardening pass.
 
+**Clerk custom Frontend API domain — required carve-out.** When a site uses a production Clerk publishable key (`pk_live_…`), Clerk routes its Frontend API through a custom subdomain on the user's own domain — typically `clerk.<your-app-domain>` (for the NGF main app: `clerk.app.ngfsystems.com`). The publishable key encodes this domain in base64 — decode the part after `pk_live_` to find it. Both `script-src` AND `connect-src` AND `frame-src` MUST include this custom domain or sign-in fails with silent CSP-blocked requests. The `*.clerk.com` and `*.clerk.accounts.dev` allowances DON'T cover the custom domain. Symptoms: sign-in page loads but submission stalls, console fills with `Refused to load the script 'https://clerk.<your-domain>/...'` errors. Each NGF site with its own Clerk instance has a different custom domain — derive it from the site's publishable key and add to CSP at setup time.
+
 ### 2. The portal-editor frame-ancestors carve-out
 
 Client sites still need this header (it's on TOP of the global CSP — multiple CSP headers are intersected by the browser):
@@ -896,6 +898,115 @@ Ask first. If you genuinely have to make a call without input, the safest defaul
 
 ---
 
+## Universal interaction patterns
+
+Behaviors that should feel identical across every NGF client site so a visitor who learns one site implicitly knows them all. Every NGF site implements these the same way using the same library — no custom variants, no per-site reinventions.
+
+### Image modal — click to zoom, drag to pan, gallery navigation
+
+Whenever an image on an NGF client site is openable — gallery cards, hero slideshows, property photo grids, floor plan diagrams, team photos, before/after sets — it MUST open in a standard NGF image modal with these guaranteed behaviors:
+
+- **Click/tap the image** → opens full-screen modal with dimmed backdrop (~85% black)
+- **Image starts fit-to-viewport** with even padding on all sides
+- **Click the open image** → zoom toggle (fit ↔ natural / ~2× size). Mouse wheel zooms further on desktop; pinch zooms on mobile.
+- **When zoomed, drag to pan** — mouse drag on desktop, finger drag on mobile
+- **Close via four methods, all equivalent**: × button (top-right), ESC key, click on backdrop, swipe-down on mobile
+- **Body scroll locked** while open, scroll position restored exactly on close
+- **Focus trapped** when open, focus returned to the trigger image on close
+- **For galleries** (two or more images in one `<PhotoProvider>`): arrow keys / on-screen arrows / mobile swipe navigate prev↔next, loops at the ends, counter shown ("3 / 12")
+- **Captions optional per-image** — opt in by passing an `overlay` prop, omit otherwise
+- **Smooth ~250 ms transitions** for open, zoom, navigation
+
+**Implementation: `react-photo-view`**
+
+```bash
+npm install react-photo-view
+```
+
+Import the CSS once globally, then use the component anywhere:
+
+```tsx
+// app/layout.tsx
+import 'react-photo-view/dist/react-photo-view.css'
+```
+
+**Single image** — wrap with one `<PhotoProvider>` and one `<PhotoView>`:
+
+```tsx
+import { PhotoProvider, PhotoView } from 'react-photo-view'
+
+<PhotoProvider>
+  <PhotoView src="/floorplans/bayside-full.jpg">
+    <img
+      src="/floorplans/bayside-thumb.jpg"
+      alt="The Bayside floor plan"
+      className="cursor-zoom-in"
+    />
+  </PhotoView>
+</PhotoProvider>
+```
+
+**Gallery** — multiple `<PhotoView>` inside ONE `<PhotoProvider>` makes them browseable as a set:
+
+```tsx
+<PhotoProvider>
+  {properties.map((p) => (
+    <PhotoView key={p.id} src={p.fullImage}>
+      <img
+        src={p.thumbnail}
+        alt={p.name}
+        className="cursor-zoom-in"
+      />
+    </PhotoView>
+  ))}
+</PhotoProvider>
+```
+
+**Caption** — opt in per image via the `overlay` prop:
+
+```tsx
+<PhotoView
+  src={fp.fullImage}
+  overlay={
+    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-4 py-1.5 text-sm text-white backdrop-blur-sm">
+      {fp.name} — {fp.squareFeet} sq ft · {fp.bedrooms}BR · {fp.baths}BA
+    </div>
+  }
+>
+  <img src={fp.thumbnail} alt={fp.name} className="cursor-zoom-in" />
+</PhotoView>
+```
+
+**Required rules:**
+
+1. **One `<PhotoProvider>` per gallery context.** All `<PhotoView>` inside the same provider become a navigable set. Putting them in different providers makes them disconnected single-image lightboxes — usually NOT what you want for gallery grids.
+2. **Always add `cursor-zoom-in`** (Tailwind utility) to the trigger `<img>`. Visual affordance that the image is interactive.
+3. **Use plain `<img>` for triggers, not `next/image`.** Same rule as for `data-ngf-field` image annotations — the bridge and the modal both need direct DOM access.
+4. **Pass a separate high-res `src` to `<PhotoView>` and a smaller `src` to the trigger `<img>`** when image weight matters. The thumbnail loads on page render, the high-res only loads when the modal opens.
+5. **Never build a custom lightbox or image modal.** This is the standard for every NGF site, no exceptions. Consistency across sites matters more than per-site customization.
+
+**Per-client styling overrides:**
+
+Default styles look professional out of the box. Per-client tweaks belong in `app/globals.css` and should be limited to color/accent — never restructure the modal layout, scroll behavior, or close affordances, because those are the cross-site standard:
+
+```css
+/* Optional — match modal chrome to client brand */
+.PhotoView-Slider__ArrowLeft,
+.PhotoView-Slider__ArrowRight,
+.PhotoView-Slider__Counter { color: var(--accent); }
+```
+
+**When to apply this pattern** (case-by-case checklist):
+
+- ✅ Floor plan diagrams, property photo galleries, before/after construction shots
+- ✅ Team member photos, especially if there's an "about" page bio worth showing larger
+- ✅ Service galleries (auto detailing before/after, completed builds, project portfolios)
+- ✅ Any image where a visitor's natural instinct is "I want to see that bigger"
+- ❌ Pure decorative background images, icon-sized photos in nav, logos, hero photos that fill the viewport already
+- ❌ Anything inside the portal editor (the editor has its own iframe-based preview)
+
+---
+
 ## Absolute rules — never break
 
 These apply to **every** project, client site or main app.
@@ -909,6 +1020,7 @@ These apply to **every** project, client site or main app.
 7. Mobile-first responsive — every page works at 375 / 768 / 1280
 8. Never ship a feature without testing the unhappy paths
 9. Never push without running `npm run build` or `npx tsc --noEmit` first
+10. Never build a custom image modal / lightbox. Use the `react-photo-view` pattern from "Universal interaction patterns." Every NGF site uses the same library — visitors should feel the same interaction across sites.
 
 NGF main app additionally:
 - One Prisma instance — always `import { db } from '@/lib/db'`
@@ -946,6 +1058,8 @@ NGF main app additionally:
 | Image upload button returns "Blob storage is not configured" | Vercel Blob token not provisioned. Vercel → ngf-systems-app → Storage → Create Blob → set access **Public** (not Private — image URLs need to be readable from public client sites) → Connect Project → redeploy |
 | Pending change appears after just clicking a field with no edits | Old version of the editor's EditPopover. The Cancel/× handler used to write `preEditValue` back unconditionally; current version tracks a dirty flag and skips the write when nothing changed. Pull latest |
 | Phantom modifications in `git status` after AI edit session | CRLF/LF line-ending mismatch from Cowork mount writes. Diff every line as `-`/`+` with identical content. Either commit them as a one-time noise commit or `git checkout -- <files>` to discard |
+| Sign-in page stalls after CSP added | Clerk uses a custom subdomain (`clerk.<your-domain>`) for its Frontend API on production keys. CSP must explicitly list it in `script-src`, `connect-src`, AND `frame-src` — `*.clerk.com` does NOT cover it. Decode the publishable key (base64 part after `pk_live_`) to find the domain |
+| Image gallery feels custom or inconsistent across NGF sites | Don't build a custom lightbox. Use the `react-photo-view` pattern documented under "Universal interaction patterns" — every NGF site uses the same library and the same wrap-with-PhotoProvider pattern |
 
 ---
 
