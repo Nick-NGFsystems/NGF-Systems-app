@@ -1,0 +1,10 @@
+# Force LF line endings for all shell scripts. Vercel runs these via bash
+# on Linux and CRLF causes silent "$'\r': command not found" failures
+# (the kind that take an hour to diagnose). The Cowork mount sometimes
+# converts shell scripts to CRLF when they get re-touched, so we lock it.
+*.sh text eol=lf
+
+# Same for any other Linux-executed file
+Dockerfile text eol=lf
+*.dockerfile text eol=lf
+*.bash text eol=lf

@@ -17,6 +17,10 @@
 # How to read the exit code:
 #   $? == 0  → no non-docs changes → SKIP DEPLOY (saves credit)
 #   $? != 0  → real code changed → DEPLOY (build runs)
+#
+# IMPORTANT: this file MUST have LF (not CRLF) line endings. Vercel runs
+# it via bash on Linux. CRLF causes "$'\r': command not found" errors and
+# every deploy fails. There's a .gitattributes entry to enforce this.
 
 set -e
 
@@ -33,9 +37,9 @@ if git diff --quiet HEAD^ HEAD -- . \
     ':(exclude)CLAUDE.md' \
     ':(exclude)NGF-STANDARDS.md' \
     ':(exclude)README.md'; then
-  echo "📄 Only docs/config changed — skipping deploy."
+  echo "Only docs/config changed — skipping deploy."
   exit 0
 fi
 
-echo "✅ Code changes detected — proceeding with deploy."
+echo "Code changes detected — proceeding with deploy."
 exit 1
