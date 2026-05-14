@@ -411,6 +411,74 @@ Put `data-ngf-group` on the container, declare each item's sub-fields in `data-n
 | `image` | URL field + Upload-from-computer + preview | `el.setAttribute('src', …)` |
 | `toggle` | true/false | `el.textContent` |
 
+#### Large galleries (10+ photos in one place)
+
+For project portfolios, property listing photo sets, before-and-after collections, or any "lots of photos in one container" pattern, use the same repeatable-group annotation system above with three adjustments:
+
+1. **Bump `data-ngf-max-items`** to reflect realistic ceiling (50 or 100 for galleries)
+2. **Keep item-fields minimal** — usually just `{key: "image", type: "image", aspect: "..."}` plus optional caption. Don't add unnecessary fields per photo; each extra sub-field doubles the sidebar height per item.
+3. **Wrap the rendered grid in `<PhotoProvider>`** from `react-photo-view` (see "Universal interaction patterns") so visitors can click any photo to open a fullscreen swipeable lightbox.
+
+**Annotation pattern:**
+
+```tsx
+import { PhotoProvider, PhotoView } from 'react-photo-view'
+
+<section>
+  <PhotoProvider>
+    <div
+      data-ngf-group="project.gallery"
+      data-ngf-item-label="Photo"
+      data-ngf-min-items="0"
+      data-ngf-max-items="50"
+      data-ngf-item-fields='[{"key":"image","label":"Photo","type":"image","aspect":"3:2"},{"key":"caption","label":"Caption (optional)","type":"text"}]'
+      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+    >
+      {photos.map((p, i) => (
+        <PhotoView
+          key={i}
+          src={content[`project.gallery.${i}.image`] || p.fallbackSrc}
+        >
+          <img
+            src={content[`project.gallery.${i}.image`] || p.fallbackSrc}
+            alt={content[`project.gallery.${i}.image_alt`] || p.alt}
+            data-ngf-field={`project.gallery.${i}.image`}
+            data-ngf-label="Photo"
+            data-ngf-type="image"
+            data-ngf-section="Project Gallery"
+            data-ngf-aspect="3:2"
+            className="w-full h-auto object-cover rounded-lg cursor-zoom-in"
+          />
+        </PhotoView>
+      ))}
+    </div>
+  </PhotoProvider>
+</section>
+```
+
+**What the client gets, in plain language:**
+
+- **Visitors** see a tidy grid; click any photo → fullscreen modal with prev/next arrows, swipe on mobile, pinch-zoom, and pan. Captions display below each image if you've set them.
+- **Clients editing** see every photo with the permanent "Replace photo" overlay button. Click on any individual photo in the live preview → cropper opens → upload replacement → alt text inline → done. They never have to scroll the sidebar to swap a photo.
+- **Adding a new photo:** sidebar "+ Add Photo" button at the bottom of the gallery group adds an empty slot. Then click it in the preview or sidebar to upload.
+- **Reordering:** sidebar has ↑↓ arrows on each card.
+- **Deleting:** × button on each card in the sidebar.
+
+**Known UX rough edges at 30+ photos** (functional, just tedious):
+
+- One photo upload at a time — no bulk drag-and-drop-30-files-at-once (yet)
+- Reorder is ↑↓ click-many-times — no drag-to-reposition (yet)
+- Sidebar gets long with 30+ cards stacked vertically
+
+These are tolerable for "swap a few photos occasionally" workflows but get painful for "upload an entire 30-photo gallery from scratch in one session." The first time a client actually hits the wall, that's the signal to build bulk upload + drag-to-reorder. Until then, set client expectations: "to add many photos at once, expect to do it one at a time — takes maybe a minute per photo."
+
+**Things to avoid in large gallery annotations:**
+
+- **Don't add captions as a required field** unless they're genuinely needed — most clients won't fill them in and the empty captions clutter the design. Mark them optional and only render if non-empty.
+- **Don't omit `data-ngf-aspect`** — without it, clients upload portrait phone photos into landscape grid slots and the layout breaks. Lock the aspect to match the design.
+- **Don't use `next/image` with `fill`** — same rule as everywhere else; bridge can't read/write through the wrapper. Plain `<img>`.
+- **Don't annotate the `<PhotoView>` wrapper** — annotate only the `<img>` inside it. The bridge needs the actual image element for src updates.
+
 ### Critical content-rendering rules
 
 1. **Always use `||`, never `??` for fallbacks.** Published content can include explicit `''`. `??` only catches `null`/`undefined`, so an empty value would render an empty element instead of falling through to the hardcoded default.
