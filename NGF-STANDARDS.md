@@ -293,14 +293,17 @@ Add `data-ngf-aspect` to lock the editor's upload cropper to a specific ratio �
 
 **Editor UX for image fields:**
 
-In edit mode, the bridge automatically renders a permanent "Replace photo" overlay button on every annotated image (>40×40px). No client action or annotation required — this is built into `NgfEditBridge.tsx`. The button:
+In edit mode, the bridge automatically renders overlay controls on every annotated image (>40-60px depending on control). No client action or annotation required — this is built into `NgfEditBridge.tsx`. Three controls in total:
 
-- Sits in the top-right of each image with a dark backdrop-blur background, legible on any photo
-- Skips logos / icons / sub-40px images
-- Clicks open the same upload popover the image-click flow does
-- Repositions on scroll/resize so it stays glued to its image
+1. **Replace photo button** (top-right, dark, ~all images >40px) — opens the upload popover with cropper + alt text input. Available on every annotated image, not just gallery items.
 
-This solves the discoverability problem: clients can't always tell that an image is clickable. The visible button is unambiguous. Sites get the new behavior automatically when their bridge is brought up to the canonical version.
+2. **Delete X button** (top-left, red, only images >60px AND inside a `[data-ngf-group]`) — confirms then sends `removeGroupItem` to the editor, which removes the card. Available only on images that live in a repeatable group, since standalone images (hero, logo) have no concept of "remove."
+
+3. **Drag-to-reorder** (cursor grab on the image itself, only images inside a `[data-ngf-group]`) — desktop drag-and-drop. Dragged image shows dimmed dashed outline, drop targets in the same group show a bold blue ring. Drop on another image in the same group → posts `moveGroupItem` to the editor. Mobile/touch: HTML5 drag doesn't fire — use the sidebar arrows instead.
+
+All three controls reposition on scroll/resize via requestAnimationFrame so they stay glued to their images. Removed automatically when edit mode is disabled or when a card containing the image is removed. Together they solve the "managing 10-30 photos in one place is painful" problem from a client's perspective — they can replace, remove, or reorder every photo directly on the live preview without scrolling the sidebar.
+
+Sites get the new behavior automatically when their bridge is brought up to the canonical version (currently ~40 KB, lives at `NorthCoveBuilders-Mockup/components/NgfEditBridge.tsx`).
 
 **Server-side image optimization (automatic):**
 
@@ -464,13 +467,19 @@ import { PhotoProvider, PhotoView } from 'react-photo-view'
 - **Reordering:** sidebar has ↑↓ arrows on each card.
 - **Deleting:** × button on each card in the sidebar.
 
-**Known UX rough edges at 30+ photos** (functional, just tedious):
+**What's polished today** (all built into the bridge — no per-site work):
+
+- **Replace any photo** by clicking the dark "Replace photo" button in its top-right corner
+- **Delete any photo** in the gallery by clicking the red X in its top-left corner — confirms, then removes the card and re-indexes the rest
+- **Reorder photos** by dragging one image onto another within the same gallery — the dragged image dims, the drop target gets a blue ring, drop swaps in the new order
+
+**Remaining UX rough edge at 30+ photos:**
 
 - One photo upload at a time — no bulk drag-and-drop-30-files-at-once (yet)
-- Reorder is ↑↓ click-many-times — no drag-to-reposition (yet)
-- Sidebar gets long with 30+ cards stacked vertically
 
-These are tolerable for "swap a few photos occasionally" workflows but get painful for "upload an entire 30-photo gallery from scratch in one session." The first time a client actually hits the wall, that's the signal to build bulk upload + drag-to-reorder. Until then, set client expectations: "to add many photos at once, expect to do it one at a time — takes maybe a minute per photo."
+That's tolerable for "swap a few photos occasionally" workflows. It gets painful for "upload an entire 30-photo gallery from scratch in one session." The first time a client actually hits this wall, build bulk multi-file upload. Until then, set client expectations: "to add many photos at once, expect to do it one at a time — takes maybe a minute per photo."
+
+**Mobile note:** drag-to-reorder uses the HTML5 drag API which doesn't fire on touchscreens. Mobile clients can still replace and delete photos directly, but for reordering they need to use the sidebar's ↑↓ arrows. Future work: add long-press-and-drag handlers for touch.
 
 **Things to avoid in large gallery annotations:**
 
