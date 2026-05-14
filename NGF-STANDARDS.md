@@ -2,6 +2,23 @@
 
 **This is the canonical foundation document for every NGF client website.** Fork/copy from `ngf-client-starter`, follow the rules below, and any site you build will plug into the NGF portal editor on day one.
 
+## Single source of truth
+
+**This file lives in exactly one place:**
+
+```
+NGF-Systems-app/NGF-STANDARDS.md  (main branch)
+```
+
+Served via the raw GitHub URL:
+```
+https://raw.githubusercontent.com/Nick-NGFsystems/NGF-Systems-app/main/NGF-STANDARDS.md
+```
+
+**No client repo carries a local copy.** Every AI session fetches the URL on startup (per the user's global `~/.claude/CLAUDE.md`). Edits happen here only — there's nothing to sync, nothing to drift. If the canonical URL is ever unreachable, that's a fail-loud condition, not a fallback opportunity.
+
+The companion reference files — `NgfEditBridge.tsx` and `lib/ngf.ts` — also have canonical homes (NorthCoveBuilders-Mockup is the reference implementation). When client sites need to update them, the AI fetches the canonical version from that repo via raw URL.
+
 ## How to use this file
 
 At the start of any new NGF client-website session, paste:
@@ -401,6 +418,37 @@ Put `data-ngf-group` on the container, declare each item's sub-fields in `data-n
 3. **Use plain `<img>` for image fields.** `next/image` with `fill` wraps the real img element so the bridge can't read or write `src`.
 4. **Don't omit `data-ngf-label` or `data-ngf-section`.** The scraper silently skips elements missing either, and they won't appear in the editor sidebar.
 5. **`data-ngf-section` is the human-readable label.** The grouping key is always derived from the first dot-segment of `data-ngf-field` (e.g. `hero.headline` → section key `hero`, regardless of what `data-ngf-section` says).
+6. **One canonical content path per unique piece of data — never duplicate paths.** When the same logical content appears in multiple places (business name in header AND footer, phone number in nav AND contact page, etc.), every instance MUST read from the same `data-ngf-field` path and the same `content['…']` lookup. This is the single most common cause of "I edited it but only some places updated" complaints.
+
+   **Right:**
+   ```tsx
+   // Top of page.tsx — single source of truth for repeated values
+   const businessName = content['brand.businessName'] || 'Square K Vacations'
+   const phone        = content['brand.phone']        || '(231) 555-0123'
+
+   // Header
+   <h1 data-ngf-field="brand.businessName" data-ngf-label="Business Name" data-ngf-type="text" data-ngf-section="Brand">
+     {businessName}
+   </h1>
+
+   // Footer — SAME path, SAME constant
+   <p data-ngf-field="brand.businessName" data-ngf-label="Business Name" data-ngf-type="text" data-ngf-section="Brand">
+     {businessName}
+   </p>
+   ```
+
+   **Wrong (creates two separate fields in the editor that don't sync):**
+   ```tsx
+   // Header
+   <h1 data-ngf-field="brand.businessName">{content['brand.businessName'] || 'Square K'}</h1>
+   // Footer — DIFFERENT path
+   <p data-ngf-field="footer.businessName">{content['footer.businessName'] || 'Square K'}</p>
+   ```
+
+   Three rules of thumb:
+   - One canonical path per unique piece of data. Business name is always `brand.businessName`, phone is always `brand.phone`, address is always `brand.address`. Never `footer.phone` or `contact.phone`.
+   - Derive a constant once per page (`const businessName = content[...] || 'fallback'`) and reuse it everywhere the data appears.
+   - Annotate every instance with the same `data-ngf-field` value. The bridge updates all matching elements in the live preview (via `querySelectorAll`), and the editor's schema scraper dedupes them to one sidebar entry. Edits in one place sync to every instance.
 
 ### Annotation pitfalls — patterns that break the editor
 
