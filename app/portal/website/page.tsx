@@ -11,6 +11,9 @@ interface LeafField {
   placeholder?: string
   rows?: number
   default?: string
+  /** Aspect ratio for image fields, e.g. "16:9". Scraped from
+   *  data-ngf-aspect. Drives the upload cropper's locked ratio. */
+  aspect?: string
 }
 
 interface RepeatableField {
@@ -47,6 +50,11 @@ interface ClickField {
   value: string
   label: string
   fieldType: FieldType
+  /** Companion alt-text value (image fields only). Convention: `<field>_alt`
+   *  in the same section. */
+  altValue?: string
+  /** Aspect ratio for image cropper, e.g. "16:9". Pulled from schema. */
+  aspect?: string
   elementRect?: { top: number; left: number; bottom: number; right: number; width: number; height: number }
 }
 
@@ -436,45 +444,223 @@ function SectionsAccordion({
   )
 }
 
-// ── Image field (URL + upload button + preview) ──────────────────────────────
+// ── Image cropper helpers ─────────────────────────────────────────────────────
+
+/** Parses "16:9" → 16/9. Returns undefined for invalid input. */
+function parseAspect(aspect?: string): number | undefined {
+  if (!aspect) return undefined
+  const m = aspect.match(/^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/)
+  if (!m) return undefined
+  const w = parseFloat(m[1])
+  const h = parseFloat(m[2])
+  if (!w || !h) return undefined
+  return w / h
+}
+
+/** Cropper outputs pixel coordinates. We draw the cropped region to a canvas
+ *  and extract a JPEG blob (small intermediate; server re-encodes to WebP). */
+async function getCroppedImageBlob(
+  imageSrc: string,
+  cropPixels: { x: number; y: number; width: number; height: number },
+): Promise<Blob> {
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image()
+    el.crossOrigin = 'anonymous'
+    el.onload = () => resolve(el)
+    el.onerror = () => reject(new Error('Could not load image for cropping'))
+    el.src = imageSrc
+  })
+
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(cropPixels.width)
+  canvas.height = Math.round(cropPixels.height)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas 2D context unavailable')
+
+  ctx.drawImage(
+    img,
+    cropPixels.x, cropPixels.y, cropPixels.width, cropPixels.height,
+    0, 0, cropPixels.width, cropPixels.height,
+  )
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      blob => blob ? resolve(blob) : reject(new Error('Failed to extract cropped image')),
+      'image/jpeg',
+      0.95,
+    )
+  })
+}
+
+/** True when the file format is meaningfully croppable. SVG (vector) and GIF
+ *  (animation) skip the cropper and upload as-is. */
+function isCroppable(mimeType: string): boolean {
+  return ['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)
+}
+
+// ── Cropper modal ─────────────────────────────────────────────────────────────
+
+interface CropperModalProps {
+  imageSrc: string
+  aspect?: number
+  onConfirm: (blob: Blob) => void
+  onCancel: () => void
+}
+
+// Cropper props we pass — kept loose because react-easy-crop's own types
+// have strict defaultProps that fight with React.ComponentType narrowing.
+type CropperLikeProps = {
+  image: string
+  crop: { x: number; y: number }
+  zoom: number
+  aspect?: number
+  onCropChange: (c: { x: number; y: number }) => void
+  onZoomChange: (z: number) => void
+  onCropComplete: (a: unknown, p: { x: number; y: number; width: number; height: number }) => void
+  showGrid?: boolean
+  objectFit?: string
+}
+
+function CropperModal({ imageSrc, aspect, onConfirm, onCancel }: CropperModalProps) {
+  // Lazy-loaded so the heavy crop library doesn't bloat the initial bundle.
+  // The component is only rendered when the user picks a file.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [Cropper, setCropper] = useState<((props: CropperLikeProps) => any) | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    import('react-easy-crop').then(mod => {
+      if (!mounted) return
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setCropper(() => mod.default as unknown as (p: CropperLikeProps) => any)
+    })
+    return () => { mounted = false }
+  }, [])
+
+  const [crop, setCrop]       = useState({ x: 0, y: 0 })
+  const [zoom, setZoom]       = useState(1)
+  const [busy, setBusy]       = useState(false)
+  const cropPixelsRef         = useRef<{ x: number; y: number; width: number; height: number } | null>(null)
+
+  const handleComplete = useCallback((_area: unknown, areaPixels: { x: number; y: number; width: number; height: number }) => {
+    cropPixelsRef.current = areaPixels
+  }, [])
+
+  const handleConfirm = async () => {
+    if (!cropPixelsRef.current) return
+    setBusy(true)
+    try {
+      const blob = await getCroppedImageBlob(imageSrc, cropPixelsRef.current)
+      onConfirm(blob)
+    } catch (err) {
+      console.error('[Cropper] confirm failed:', err)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] flex flex-col bg-black/90">
+      <div className="flex-shrink-0 px-6 py-4 flex items-center justify-between text-white">
+        <div>
+          <h3 className="text-lg font-semibold">Crop your image</h3>
+          <p className="text-xs text-white/60 mt-0.5">
+            {aspect
+              ? `This field expects a ${aspect.toFixed(2)}:1 ratio. Drag to position, scroll/pinch to zoom.`
+              : 'Drag to position the crop area, scroll/pinch to zoom.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white text-xl"
+          aria-label="Cancel cropping"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="relative flex-1 min-h-0 bg-black">
+        {Cropper && (
+          <Cropper
+            image={imageSrc}
+            crop={crop}
+            zoom={zoom}
+            aspect={aspect}
+            showGrid
+            objectFit="contain"
+            onCropChange={setCrop}
+            onZoomChange={setZoom}
+            onCropComplete={handleComplete}
+          />
+        )}
+        {!Cropper && (
+          <div className="absolute inset-0 flex items-center justify-center text-white/60 text-sm">
+            Loading cropper…
+          </div>
+        )}
+      </div>
+
+      <div className="flex-shrink-0 px-6 py-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between bg-black/40">
+        <div className="flex items-center gap-3 flex-1 max-w-md">
+          <span className="text-xs text-white/60 w-10">Zoom</span>
+          <input
+            type="range"
+            min={1} max={4} step={0.05}
+            value={zoom}
+            onChange={e => setZoom(parseFloat(e.target.value))}
+            className="flex-1 accent-blue-500"
+          />
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="h-10 px-4 rounded-lg text-sm font-medium text-white bg-white/10 hover:bg-white/20"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={busy || !Cropper}
+            className="h-10 px-4 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+          >
+            {busy ? 'Processing…' : 'Use this crop'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Image field (URL + upload + cropper + alt text + preview) ─────────────────
 
 function ImageField({
-  value, onChange, inputRef,
+  value, onChange, altValue, onAltChange, aspect, inputRef,
 }: {
   value: string
   onChange: (v: string) => void
+  altValue?: string
+  onAltChange?: (v: string) => void
+  aspect?: string
   inputRef: React.Ref<HTMLInputElement>
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploading, setUploading]       = useState(false)
+  const [uploadError, setUploadError]   = useState<string | null>(null)
+  const [cropSource, setCropSource]     = useState<{ url: string; mime: string } | null>(null)
 
-  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const aspectNumeric = parseAspect(aspect)
 
-    // Front-line validation so we never send a file the server will reject.
-    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']
-    if (!ALLOWED.includes(file.type)) {
-      setUploadError(`Only JPG, PNG, WebP, GIF, or SVG images are supported (got ${file.type || 'unknown'}).`)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-      return
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      setUploadError(`File is ${(file.size / 1024 / 1024).toFixed(1)} MB. Max is 5 MB.`)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-      return
-    }
-
+  async function uploadBlob(blob: Blob, filename: string) {
     setUploading(true)
     setUploadError(null)
     try {
       const formData = new FormData()
-      formData.append('file', file)
+      formData.append('file', new File([blob], filename, { type: blob.type }))
       const res = await fetch('/api/portal/upload', { method: 'POST', body: formData })
 
-      // Parse the body as text first so we can surface non-JSON error pages
-      // (e.g. Vercel's 413 Request Too Large, or a 502 from Blob storage).
       const bodyText = await res.text()
       let data: { success?: boolean; data?: { url?: string }; error?: string } = {}
       try { data = bodyText ? JSON.parse(bodyText) : {} } catch {
@@ -490,21 +676,68 @@ function ImageField({
       setUploadError(err instanceof Error ? err.message : 'Upload failed — network error')
     } finally {
       setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
 
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']
+    if (!ALLOWED.includes(file.type)) {
+      setUploadError(`Only JPG, PNG, WebP, GIF, or SVG images are supported (got ${file.type || 'unknown'}).`)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      setUploadError(`File is ${(file.size / 1024 / 1024).toFixed(1)} MB. Max is 25 MB.`)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    setUploadError(null)
+
+    if (isCroppable(file.type)) {
+      // Open cropper. URL is revoked after the cropper closes.
+      const url = URL.createObjectURL(file)
+      setCropSource({ url, mime: file.type })
+    } else {
+      // SVG / GIF — direct upload, no cropper.
+      await uploadBlob(file, file.name)
+    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  async function handleCropConfirm(blob: Blob) {
+    const url = cropSource?.url
+    const sourceMime = cropSource?.mime ?? 'image/jpeg'
+    setCropSource(null)
+    if (url) URL.revokeObjectURL(url)
+    const ext = sourceMime === 'image/png' ? 'png' : 'jpg'
+    await uploadBlob(blob, `cropped.${ext}`)
+  }
+
+  function handleCropCancel() {
+    if (cropSource?.url) URL.revokeObjectURL(cropSource.url)
+    setCropSource(null)
+  }
+
   return (
-    <div className="space-y-2">
-      <input
-        ref={inputRef}
-        type="text"
-        value={value || ''}
-        placeholder="https://… or use Upload"
-        onChange={e => onChange(e.target.value)}
-        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
-      <div className="flex items-center gap-2">
+    <div className="space-y-3">
+      {/* URL input */}
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Image URL</label>
+        <input
+          ref={inputRef}
+          type="text"
+          value={value || ''}
+          placeholder="https://… or use Upload from computer"
+          onChange={e => onChange(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+
+      {/* Upload row */}
+      <div className="flex items-center gap-2 flex-wrap">
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
@@ -513,7 +746,11 @@ function ImageField({
         >
           {uploading ? 'Uploading…' : 'Upload from computer'}
         </button>
-        {uploadError && <span className="text-xs text-red-600">{uploadError}</span>}
+        {aspectNumeric && (
+          <span className="text-xs text-gray-500">
+            Will be cropped to {aspect}
+          </span>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -522,12 +759,43 @@ function ImageField({
           onChange={handleFileSelect}
         />
       </div>
+      {uploadError && (
+        <p className="text-xs text-red-600">{uploadError}</p>
+      )}
+
+      {/* Alt text input — only if onAltChange is wired (image fields only). */}
+      {onAltChange && (
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Alt text <span className="text-gray-400 font-normal">(describe the image for screen readers and SEO)</span>
+          </label>
+          <input
+            type="text"
+            value={altValue ?? ''}
+            placeholder="e.g. Two-story custom home with stone front porch"
+            onChange={e => onAltChange(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      )}
+
+      {/* Preview */}
       {value && (
         <img
           src={value}
-          alt=""
-          className="w-full h-32 object-cover rounded-xl bg-gray-100"
+          alt={altValue ?? ''}
+          className="w-full max-h-48 object-cover rounded-xl bg-gray-100"
           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+        />
+      )}
+
+      {/* Cropper modal (renders only when a file is being cropped) */}
+      {cropSource && (
+        <CropperModal
+          imageSrc={cropSource.url}
+          aspect={aspectNumeric}
+          onConfirm={handleCropConfirm}
+          onCancel={handleCropCancel}
         />
       )}
     </div>
@@ -537,15 +805,18 @@ function ImageField({
 // ── Edit Popover ──────────────────────────────────────────────────────────────
 
 function EditPopover({
-  field, position, onChange, onDone, onCancel,
+  field, position, onChange, onAltChange, onDone, onCancel,
 }: {
   field: ClickField
   position: PopoverPosition
   onChange: (v: string) => void
+  /** Image-field alt-text change handler. Optional — only fires for image fields. */
+  onAltChange?: (v: string) => void
   onDone: () => void
   onCancel: () => void
 }) {
   const [value, setValue] = useState(field.value)
+  const [altValue, setAltValue] = useState(field.altValue ?? '')
   const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null)
   // Tracks whether the user actually typed/changed the value while this
   // popover was open. Used to skip the cancel-path restore when the user
@@ -557,9 +828,16 @@ function EditPopover({
 
   useEffect(() => {
     setValue(field.value)
+    setAltValue(field.altValue ?? '')
     dirtyRef.current = false   // reset for new field
     setTimeout(() => inputRef.current?.focus(), 60)
-  }, [field.field, field.section])
+  }, [field.field, field.section, field.altValue])
+
+  const handleAltChange = (v: string) => {
+    dirtyRef.current = true
+    setAltValue(v)
+    onAltChange?.(v)
+  }
 
   const handleChange = (v: string) => {
     dirtyRef.current = true
@@ -657,7 +935,14 @@ function EditPopover({
               />
             </div>
           ) : field.fieldType === 'image' ? (
-            <ImageField value={value} onChange={handleChange} inputRef={inputRef as React.Ref<HTMLInputElement>} />
+            <ImageField
+              value={value}
+              onChange={handleChange}
+              altValue={altValue}
+              onAltChange={handleAltChange}
+              aspect={field.aspect}
+              inputRef={inputRef as React.Ref<HTMLInputElement>}
+            />
           ) : field.fieldType === 'textarea' ? (
             <textarea
               ref={(el) => {
@@ -1074,6 +1359,43 @@ export default function WebsiteEditorPage() {
     iframeRef.current?.contentWindow?.postMessage({ type: 'scrollToField', path }, '*')
   }, [])
 
+  // Looks up the alt-text companion value (`<field>_alt`) from current content
+  // and the aspect-ratio from the schema. Used to enrich the ClickField for
+  // image-type popovers.
+  const lookupImageMeta = useCallback((sectionKey: string, fieldPath: string): { altValue?: string; aspect?: string } => {
+    let altValue: string | undefined
+    let aspect: string | undefined
+
+    const sectionData = content[sectionKey] as Record<string, unknown> | undefined
+    if (fieldPath.includes('.')) {
+      const parts = fieldPath.split('.')
+      if (parts.length === 3) {
+        const [arrayKey, idxStr, subKey] = parts
+        const arr = Array.isArray(sectionData?.[arrayKey]) ? sectionData[arrayKey] as unknown[] : []
+        const row = arr[parseInt(idxStr)] as Record<string, unknown> | undefined
+        altValue = row?.[subKey + '_alt'] as string | undefined
+      }
+    } else {
+      altValue = sectionData?.[fieldPath + '_alt'] as string | undefined
+    }
+
+    if (schema?.sections[sectionKey]) {
+      const fields = schema.sections[sectionKey].fields
+      if (fieldPath.includes('.')) {
+        const [arrayKey, , subKey] = fieldPath.split('.')
+        const arrayField = fields[arrayKey]
+        if (arrayField && arrayField.type === 'repeatable') {
+          aspect = arrayField.fields[subKey]?.aspect
+        }
+      } else {
+        const f = fields[fieldPath]
+        if (f && f.type !== 'repeatable') aspect = f.aspect
+      }
+    }
+
+    return { altValue, aspect }
+  }, [content, schema])
+
   // Open the edit popover for a field directly from the sidebar. Synthesizes
   // the same clickField state the iframe's `fieldClick` postMessage would.
   const openFieldEditor = useCallback((sectionKey: string, fieldPath: string, currentValue: string, label: string, fieldType: FieldType) => {
@@ -1091,9 +1413,10 @@ export default function WebsiteEditorPage() {
     const vw = typeof window !== 'undefined' ? window.innerWidth  : 1024
     const vh = typeof window !== 'undefined' ? window.innerHeight : 768
     setPopoverPos({ top: Math.max(80, vh / 2 - 160), left: Math.max(24, vw / 2 - 160), isSheet: vw < 640 })
-    setClickField({ section: sectionKey, field: fieldPath, value: currentValue, label, fieldType })
+    const meta = fieldType === 'image' ? lookupImageMeta(sectionKey, fieldPath) : {}
+    setClickField({ section: sectionKey, field: fieldPath, value: currentValue, label, fieldType, ...meta })
     scrollToField(sectionKey, fieldPath)
-  }, [content, scrollToField])
+  }, [content, scrollToField, lookupImageMeta])
 
   // First field in a section that differs from the baseline — used as the
   // scroll target when the user clicks a pending-change row.
@@ -1328,13 +1651,14 @@ export default function WebsiteEditorPage() {
           preEditValue.current = sectionData?.[field] as string | boolean | undefined
         }
 
-        setClickField({ section, field, value: currentValue, label: humanize(fieldPart), fieldType, elementRect })
+        const imageMeta = fieldType === 'image' ? lookupImageMeta(section, field) : {}
+        setClickField({ section, field, value: currentValue, label: humanize(fieldPart), fieldType, elementRect, ...imageMeta })
         setPopoverPos(pos)
       }
     }
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
-  }, [content, schema])
+  }, [content, schema, lookupImageMeta])
 
   // ── States ────────────────────────────────────────────────────────────────
 
@@ -1749,6 +2073,21 @@ export default function WebsiteEditorPage() {
           field={clickField}
           position={popoverPos}
           onChange={(v) => updateField(clickField.section, clickField.field, v)}
+          onAltChange={(v) => {
+            // Alt text lives in the companion `<field>_alt` slot in the same
+            // section / array item. updateField handles the path resolution.
+            const altPath = clickField.field.includes('.')
+              ? (() => {
+                  const parts = clickField.field.split('.')
+                  if (parts.length === 3) {
+                    const [arrayKey, idxStr, subKey] = parts
+                    return `${arrayKey}.${idxStr}.${subKey}_alt`
+                  }
+                  return `${clickField.field}_alt`
+                })()
+              : `${clickField.field}_alt`
+            updateField(clickField.section, altPath, v)
+          }}
           onDone={() => setClickField(null)}
           onCancel={() => {
             // Restore the pre-edit value captured when the popover opened.

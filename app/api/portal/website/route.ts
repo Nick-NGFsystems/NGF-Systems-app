@@ -118,6 +118,10 @@ export interface LeafField {
   placeholder?: string
   rows?: number
   default?: string
+  /** Aspect ratio for image fields, e.g. "16:9" or "1:1". Scraped from
+   *  data-ngf-aspect. When set, the editor locks the upload cropper to
+   *  this ratio so the uploaded image matches the design exactly. */
+  aspect?: string
 }
 
 export interface RepeatableField {
@@ -164,7 +168,7 @@ export interface SiteSchema {
 //   data-ngf-item-fields='[{"key":"name","label":"Name","type":"text"}]'
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface ItemFieldDef { key: string; label: string; type: FieldType }
+interface ItemFieldDef { key: string; label: string; type: FieldType; aspect?: string }
 
 async function scrapeSiteHtml(siteUrl: string): Promise<string | null> {
   // SSRF guard: refuse to fetch URLs targeting private/local network ranges.
@@ -211,12 +215,14 @@ async function scrapeSchemaFromSite(siteUrl: string, htmlArg?: string): Promise<
       const labelMatch   = attrRe('ngf-label').exec(tag)
       const typeMatch    = attrRe('ngf-type').exec(tag)
       const sectionMatch = attrRe('ngf-section').exec(tag)
+      const aspectMatch  = attrRe('ngf-aspect').exec(tag)
 
       if (!labelMatch || !sectionMatch) continue
 
       const fieldLabel   = labelMatch[1]
       const fieldType    = (typeMatch?.[1] as FieldType) ?? 'text'
       const sectionLabel = sectionMatch[1]
+      const fieldAspect  = aspectMatch?.[1]
 
       // Derive a stable section key from the field's dot-notation prefix
       const sectionKey = fieldPath.split('.')[0]
@@ -239,6 +245,7 @@ async function scrapeSchemaFromSite(siteUrl: string, htmlArg?: string): Promise<
         type:  fieldType,
         label: fieldLabel,
         ...(fieldType === 'textarea' ? { rows: 3 } : {}),
+        ...(fieldType === 'image' && fieldAspect ? { aspect: fieldAspect } : {}),
         default: '',
       }
       sectionMap[sectionKey].fields[fieldKey] = leafField
@@ -288,6 +295,7 @@ async function scrapeSchemaFromSite(siteUrl: string, htmlArg?: string): Promise<
           type:  f.type,
           label: f.label,
           ...(f.type === 'textarea' ? { rows: 2 } : {}),
+          ...(f.type === 'image' && f.aspect ? { aspect: f.aspect } : {}),
           default: '',
         }
         defaultItem[f.key] = ''

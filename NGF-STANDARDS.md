@@ -244,17 +244,57 @@ Every editable element needs **all four** attributes. The scraper silently drops
 
 The bridge swaps `src` directly. `next/image` with `fill` wraps the real img in a span the bridge can't reach.
 
+Add `data-ngf-aspect` to lock the editor's upload cropper to a specific ratio — the client's uploaded photo is cropped to match this ratio before it ever reaches the server. Also use the `<field>_alt` convention for editable alt text so clients can describe their images for SEO and accessibility.
+
 ```tsx
 <img
   src={content['hero.image'] || '/hero-default.jpg'}
-  alt="Hero background"
+  alt={content['hero.image_alt'] || 'Hero background'}
   data-ngf-field="hero.image"
   data-ngf-label="Hero Background Image"
   data-ngf-type="image"
   data-ngf-section="Hero"
+  data-ngf-aspect="16:9"
   className="absolute inset-0 h-full w-full object-cover"
 />
 ```
+
+**What `data-ngf-aspect` does:**
+
+- The schema scraper picks up the aspect on every image field that has it.
+- The editor's upload cropper locks to that aspect ratio — the client can pan and zoom but can't break the design by uploading a square photo into a wide hero slot.
+- Format is `"W:H"` — common values: `"16:9"` (hero / banner), `"1:1"` (avatar / square card), `"3:2"` (most photos), `"4:5"` (Instagram portrait), `"2:1"` (banner).
+- Omit the attribute entirely for free-form cropping (the cropper still appears, but the ratio is unlocked).
+
+**What the `<field>_alt` convention does:**
+
+- The editor's image-field popover always shows an alt-text input alongside the URL/upload controls.
+- Whatever the client types is stored as a companion field at the same path with `_alt` appended.
+- The client site reads it via `content['hero.image_alt'] || 'fallback alt'`.
+- No extra annotation needed — the convention is implicit. Just use `_alt` in your fallback lookup and the editor handles the rest.
+- For repeatable items: `content['team.members.0.image_alt']`, `content['team.members.1.image_alt']`, etc.
+
+**Server-side image optimization (automatic):**
+
+Every uploaded raster image (JPEG / PNG / WebP) goes through a Sharp pipeline before storage:
+
+- Auto-rotated by EXIF (fixes sideways phone photos)
+- Resized so neither side exceeds 1920px
+- Converted to WebP at quality 85
+- EXIF metadata stripped (smaller files, privacy)
+
+A client uploads a 12 MB iPhone photo; the live site stores a ~250 KB WebP. SVG and animated GIF pass through unchanged. The 25 MB upload limit is generous because optimization handles the size problem on the server side.
+
+**Recommended aspect ratios by image type:**
+
+| Image type | Recommended aspect |
+|---|---|
+| Full-bleed hero / banner | `16:9` or `21:9` |
+| Avatar / team photo | `1:1` |
+| Service card thumbnail | `3:2` or `4:3` |
+| Project portfolio item | `3:2` |
+| Logo (don't bother — usually doesn't need cropping) | omit attribute |
+| Floor plan diagram | `4:3` |
 
 #### Color field
 
@@ -300,7 +340,7 @@ Put `data-ngf-group` on the container, declare each item's sub-fields in `data-n
   data-ngf-item-label="Service"
   data-ngf-min-items="1"
   data-ngf-max-items="16"
-  data-ngf-item-fields='[{"key":"image","label":"Photo","type":"image"},{"key":"name","label":"Name","type":"text"},{"key":"price","label":"Price","type":"text"}]'
+  data-ngf-item-fields='[{"key":"image","label":"Photo","type":"image","aspect":"1:1"},{"key":"name","label":"Name","type":"text"},{"key":"price","label":"Price","type":"text"}]'
 >
   {services.map((svc, i) => (
     <article key={i}>
