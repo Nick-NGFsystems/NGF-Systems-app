@@ -779,15 +779,28 @@ function ImageField({
         </div>
       )}
 
-      {/* Preview */}
-      {value && (
+      {/* Preview — replaced with a loading state during upload so the user
+          sees obvious feedback while the server is processing (Sharp pipeline
+          + Blob upload can take 5-15s for large files). */}
+      {uploading ? (
+        <div className="w-full h-48 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 flex flex-col items-center justify-center gap-3">
+          <svg className="animate-spin w-10 h-10 text-blue-600" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
+            <path d="M12 2 a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          </svg>
+          <div className="text-center">
+            <p className="text-sm font-medium text-blue-900">Uploading photo…</p>
+            <p className="text-xs text-blue-700 mt-0.5">Optimizing and storing. This usually takes 5-15 seconds.</p>
+          </div>
+        </div>
+      ) : value ? (
         <img
           src={value}
           alt={altValue ?? ''}
           className="w-full max-h-48 object-cover rounded-xl bg-gray-100"
           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
         />
-      )}
+      ) : null}
 
       {/* Cropper modal (renders only when a file is being cropped) */}
       {cropSource && (
@@ -1620,6 +1633,34 @@ export default function WebsiteEditorPage() {
         }, 50)
       }
 
+      // Bridge X-delete button (gallery photos) — incoming from the iframe.
+      // Bridge sends { group: 'gallery.items', index: 2 }. Split into the
+      // (sectionKey, arrayKey) shape the editor's removeGroupItem expects,
+      // then call it just like the sidebar's × button does — same state
+      // update, same draft save, same "pending change" surfaced in sidebar.
+      if (e.data?.type === 'removeGroupItem' && typeof e.data.group === 'string' && typeof e.data.index === 'number') {
+        const parts = e.data.group.split('.')
+        if (parts.length === 2) {
+          removeGroupItem(parts[0], parts[1], e.data.index)
+        } else {
+          // Galleries nested deeper than section.array aren't supported by
+          // the current removeGroupItem function. Log so future debugging is
+          // easier; don't silently fail.
+          console.warn('[editor] removeGroupItem from iframe: unsupported nested group path', e.data.group)
+        }
+      }
+
+      // Bridge drag-to-reorder — incoming from iframe drop. Same shape
+      // transformation as removeGroupItem above.
+      if (e.data?.type === 'moveGroupItem' && typeof e.data.group === 'string' && typeof e.data.from === 'number' && typeof e.data.to === 'number') {
+        const parts = e.data.group.split('.')
+        if (parts.length === 2) {
+          moveGroupItem(parts[0], parts[1], e.data.from, e.data.to)
+        } else {
+          console.warn('[editor] moveGroupItem from iframe: unsupported nested group path', e.data.group)
+        }
+      }
+
       if (e.data?.type === 'fieldClick') {
         const { section, field, currentValue, elementRect, fieldType: bridgeFieldType } = e.data as {
           section: string; field: string; currentValue: string
@@ -1658,7 +1699,7 @@ export default function WebsiteEditorPage() {
     }
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
-  }, [content, schema, lookupImageMeta])
+  }, [content, schema, lookupImageMeta, removeGroupItem, moveGroupItem])
 
   // ── States ────────────────────────────────────────────────────────────────
 
