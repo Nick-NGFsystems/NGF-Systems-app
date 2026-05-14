@@ -416,7 +416,13 @@ Put `data-ngf-group` on the container, declare each item's sub-fields in `data-n
 
 #### Large galleries (10+ photos in one place)
 
-For project portfolios, property listing photo sets, before-and-after collections, or any "lots of photos in one container" pattern, use the same repeatable-group annotation system above with three adjustments:
+For project portfolios, property listing photo sets, before-and-after collections, or any "lots of photos in one container" pattern, use the same repeatable-group annotation system above with three adjustments.
+
+**Hard requirements — without these, in-preview delete and drag-reorder will silently no-op:**
+
+- **Group path must be exactly two segments deep** (e.g. `gallery.items`, `properties.photos`, `project.gallery`). The editor's removeGroupItem/moveGroupItem functions expect `section.arrayKey` shape — nested-deeper paths like `projects.0.gallery` are not supported and the X / drag controls will fail silently. If you need a per-project gallery, use a flat naming convention like `projectAGallery.items`, `projectBGallery.items`.
+- **The container element MUST carry `data-ngf-group="<section>.<array>"`** with that exact 2-segment path. Without the wrapper, the bridge's `getGroupContext()` returns null and individual photos can be edited but NOT deleted or reordered.
+- **Each photo's `data-ngf-field` MUST follow the indexed pattern** `<section>.<array>.<i>.<subfield>` — e.g. `gallery.items.0.image`, `gallery.items.1.image`. Anything else and the index parsing fails.
 
 1. **Bump `data-ngf-max-items`** to reflect realistic ceiling (50 or 100 for galleries)
 2. **Keep item-fields minimal** — usually just `{key: "image", type: "image", aspect: "..."}` plus optional caption. Don't add unnecessary fields per photo; each extra sub-field doubles the sidebar height per item.
@@ -487,6 +493,33 @@ That's tolerable for "swap a few photos occasionally" workflows. It gets painful
 - **Don't omit `data-ngf-aspect`** — without it, clients upload portrait phone photos into landscape grid slots and the layout breaks. Lock the aspect to match the design.
 - **Don't use `next/image` with `fill`** — same rule as everywhere else; bridge can't read/write through the wrapper. Plain `<img>`.
 - **Don't annotate the `<PhotoView>` wrapper** — annotate only the `<img>` inside it. The bridge needs the actual image element for src updates.
+- **Don't nest the group path deeper than 2 segments** — `project.gallery` works, `projects.0.gallery` will silently break the delete + drag controls.
+
+**Image sizing in the grid — get this right or the editor experience suffers:**
+
+Galleries that look fine on the public site can become hard to manage in the editor when image sizes are extreme in either direction. The editor renders the gallery at the same size the live site does (it's an iframe of the live site).
+
+- **Too small** (e.g. 5+ columns on desktop, 60×60px thumbnails): the X delete button and Replace photo button get cramped, the drag-target highlight is barely visible, and clients squint to identify which photo is which.
+- **Too large** (e.g. 1 column on desktop, full-viewport images): clients have to scroll the iframe constantly to reach later photos, making reorder via drag tedious because the target may be off-screen.
+
+**Recommended sizing:**
+
+```tsx
+<div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+  {photos.map((p, i) => (
+    <div key={i} className="aspect-[3/2]">
+      <img
+        src={...}
+        className="w-full h-full object-cover rounded-lg cursor-zoom-in"
+        data-ngf-field={`gallery.items.${i}.image`}
+        ...
+      />
+    </div>
+  ))}
+</div>
+```
+
+Key points: 2 columns on mobile (large enough to manage), 3-4 columns on desktop (enough to see ~12 photos in viewport without scrolling), explicit `aspect-[3/2]` (or whatever the `data-ngf-aspect` is — they MUST match), `object-cover` so images fill their slot uniformly. Tile size lands around 200-300px wide on desktop which is the sweet spot for the X and Replace buttons to fit comfortably.
 
 ### Critical content-rendering rules
 
