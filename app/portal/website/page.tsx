@@ -1661,6 +1661,58 @@ export default function WebsiteEditorPage() {
         }
       }
 
+      // Bridge gallery Save-changes bar — iframe sends the full new array after
+      // the user reorders or deletes photos inline (← × → controls).
+      // group = "property.lakeshore-grand-retreat.images"
+      // items = [{ image: 'https://...' }, { image: 'https://...' }, ...]
+      // We rebuild the flat keys inside the section object so the existing
+      // flatten() → /api/public/content path works without changes.
+      if (e.data?.type === 'ngfGroupUpdate' && typeof e.data.group === 'string' && Array.isArray(e.data.items)) {
+        const group     = e.data.group as string
+        const items     = e.data.items as Array<Record<string, string>>
+        const firstDot  = group.indexOf('.')
+        if (firstDot !== -1) {
+          const sectionKey = group.slice(0, firstDot)
+          const groupPath  = group.slice(firstDot + 1)
+          setContent(prev => {
+            const sectionData = { ...((prev[sectionKey] ?? {}) as Record<string, unknown>) }
+            // Remove stale keys for this group
+            Object.keys(sectionData).forEach(k => {
+              if (k.startsWith(groupPath + '.')) delete sectionData[k]
+            })
+            // Write incoming items as flat keys
+            items.forEach((item, i) => {
+              Object.entries(item).forEach(([k, v]) => {
+                sectionData[`${groupPath}.${i}.${k}`] = v
+              })
+            })
+            const next = { ...prev, [sectionKey]: sectionData }
+            pushToPreview(next)
+            scheduleSave(next)
+            return next
+          })
+        }
+      }
+
+      // Bridge hero-image sync — fired alongside ngfGroupUpdate so the cover
+      // photo on the properties list page stays in sync with the gallery order.
+      // field = "property.lakeshore-grand-retreat.heroImage", value = url
+      if (e.data?.type === 'ngfFieldUpdate' && typeof e.data.field === 'string' && typeof e.data.value === 'string') {
+        const field    = e.data.field as string
+        const firstDot = field.indexOf('.')
+        if (firstDot !== -1) {
+          const sectionKey = field.slice(0, firstDot)
+          const fieldPath  = field.slice(firstDot + 1)
+          setContent(prev => {
+            const sectionData = { ...((prev[sectionKey] ?? {}) as Record<string, unknown>), [fieldPath]: e.data.value }
+            const next = { ...prev, [sectionKey]: sectionData }
+            pushToPreview(next)
+            scheduleSave(next)
+            return next
+          })
+        }
+      }
+
       if (e.data?.type === 'fieldClick') {
         const { section, field, currentValue, elementRect, fieldType: bridgeFieldType } = e.data as {
           section: string; field: string; currentValue: string
@@ -1699,7 +1751,7 @@ export default function WebsiteEditorPage() {
     }
     window.addEventListener('message', handler)
     return () => window.removeEventListener('message', handler)
-  }, [content, schema, lookupImageMeta, removeGroupItem, moveGroupItem])
+  }, [content, schema, lookupImageMeta, removeGroupItem, moveGroupItem, pushToPreview, scheduleSave])
 
   // ── States ────────────────────────────────────────────────────────────────
 
@@ -2204,4 +2256,4 @@ export default function WebsiteEditorPage() {
 
     </div>
   )
-}
+}
