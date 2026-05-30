@@ -1583,7 +1583,11 @@ export default function WebsiteEditorPage() {
       const saveRes = await fetch('/api/portal/website', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        // Publish must persist the SAME empty-stripped payload that scheduleSave
+        // uses. Otherwise applySchemaDefaults' '' placeholders for every untouched
+        // field get force-saved into the draft, promoted to published content by
+        // /push, and then leak through the public content API as empty-string noise.
+        body: JSON.stringify({ content: stripEmpty(content) }),
       })
       if (!saveRes.ok) { setPushStatus('error'); setTimeout(() => setPushStatus('idle'), 3000); return }
 
@@ -1597,7 +1601,7 @@ export default function WebsiteEditorPage() {
       } else { setPushStatus('error') }
       setTimeout(() => setPushStatus('idle'), 3000)
     } catch { setPushStatus('error'); setTimeout(() => setPushStatus('idle'), 3000) }
-  }, [content, reloadPreview])
+  }, [content, reloadPreview, stripEmpty])
 
   // Load on mount
   useEffect(() => {
