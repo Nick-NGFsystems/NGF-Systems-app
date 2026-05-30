@@ -46,9 +46,16 @@ NGF projects are built in Claude Cowork mode. Claude has direct access to the co
 
 **Pushing code:**
 ```bash
+# Push EVERYTHING that differs from remote (use only when you're certain the
+# whole working tree is clean):
 python3 github-push.py <repo-name> "<commit message>"
+
+# Push ONLY specific files (the safe default — append an explicit file list):
+python3 github-push.py <repo-name> "<commit message>" path/to/file1 path/to/file2
 ```
 The portable version of `github-push.py` resolves the repo dynamically — no hardcoded session paths, works from any Cowork session or your local machine. Credentials live in `github-push-config.json` next to the script.
+
+**Always pass an explicit file list unless you have just verified the working tree is clean.** The no-filter form walks the entire local tree and pushes every file whose bytes differ from the remote blob — which includes (a) phantom CRLF/LF churn on files nobody edited, (b) other people's uncommitted in-progress work sitting in the tree, and (c) any stray non-code files in the repo (a misplaced `.docx`, `.xlsx`, `.env` backup, etc. — the script's ignore list is only `.git`, `node_modules`, `.next`, `.vercel`, `.env`, `.env.local`). Listing the exact files you changed makes the commit reviewable and keeps unrelated noise — and secrets — out of the repo. This isn't hypothetical: a blanket push from a dirty tree has swept in line-ending churn across 20+ files and personal documents before.
 
 ---
 
@@ -130,7 +137,11 @@ export async function getNgfContent(): Promise<NgfSiteContent> {
       .replace(/^www\./, '')
       .replace(/\/$/, '')
     const url = `${process.env.NGF_APP_URL || 'https://app.ngfsystems.com'}/api/public/content?domain=${encodeURIComponent(domain)}`
-    const res = await fetch(url, { cache: 'no-store' })
+    // Cache the content fetch and revalidate on a 60s window so we don't hit
+    // Neon on every request. Tagged 'ngf-content' so the NGF push handler can
+    // bust the cache instantly via /api/revalidate when the client publishes.
+    // NEVER use cache: 'no-store' here — see "Content caching & revalidation".
+    const res = await fetch(url, { next: { revalidate: 60, tags: ['ngf-content'] } })
     if (!res.ok) return {}
     const data = (await res.json()) as { content?: NgfSiteContent }
     return data.content ?? {}
@@ -171,6 +182,48 @@ export function getItems(
   })
 }
 ```
+
+### Content caching & revalidation — required
+
+**Never ship `cache: 'no-store'` in `getNgfContent()`.** Every uncached SSR render hits the NGF content API, which hits Neon. For content that changes maybe once a week, that burns Neon compute on every single pageview. The standard is time-based ISR plus instant cache-busting on publish — two layers that combine to give both freshness and near-zero database load.
+
+**Layer 1 — tagged, revalidating fetch** (already baked into the canonical `lib/ngf.ts` above):
+
+```typescript
+const res = await fetch(url, { next: { revalidate: 60, tags: ['ngf-content'] } })
+```
+
+Pages serve from cache and refresh at most once per 60 seconds. Neon sees roughly one request per minute per page instead of one per visitor.
+
+**Layer 2 — `/api/revalidate` endpoint on every client site** — busts the cache the instant a client clicks "Push to Website" so they never wait out the 60s window to see their own change:
+
+```typescript
+// app/api/revalidate/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+import { revalidateTag } from 'next/cache'
+
+export async function GET(req: NextRequest) {
+  if (req.nextUrl.searchParams.get('secret') !== process.env.WEBSITE_REVALIDATION_SECRET) {
+    return NextResponse.json({ ok: false }, { status: 401 })
+  }
+  revalidateTag('ngf-content')
+  return NextResponse.json({ ok: true, revalidated: true })
+}
+```
+
+**Shared secret** — set `WEBSITE_REVALIDATION_SECRET` on the client site's Vercel project to the **same value** as `WEBSITE_REVALIDATION_SECRET` on the NGF main app. The NGF push handler (`app/api/portal/website/push/route.ts`) reads its own copy and calls `https://<site_url>/api/revalidate?secret=<secret>` on every publish. Mismatched secrets → the endpoint 401s and the site falls back to the 60s window (still correct, just not instant).
+
+**How the two layers combine:**
+
+| Scenario | What happens |
+|---|---|
+| Client publishes via portal | Push handler pings `/api/revalidate` → `revalidateTag` → next request rebuilds from fresh content. Sub-second. |
+| `WEBSITE_REVALIDATION_SECRET` unset or mismatched | No ping (or 401). Content still refreshes within 60s via ISR. |
+| Normal visitor traffic | Served from the ISR cache. Neon hit at most once per 60s per page. |
+
+This is the single highest-leverage change for Neon cost: a busy client site drops from one Neon query per pageview to one per minute per page.
+
+**Migrating an existing site off `cache: 'no-store'`:** update its `lib/ngf.ts` fetch to the tagged/revalidating form above, add `app/api/revalidate/route.ts`, set `WEBSITE_REVALIDATION_SECRET` in Vercel, redeploy. No portal-side change needed — the push handler already pings every site that has a `site_url` set.
 
 ### `components/NgfEditBridge.tsx` — copy verbatim from a current reference
 
@@ -223,6 +276,12 @@ async headers() {
 NEXT_PUBLIC_SITE_URL   # MUST match client_configs.site_url in the NGF database
                        # exactly (after normalizing protocol/www/trailing slash)
 NGF_APP_URL            # Optional. Defaults to https://app.ngfsystems.com
+WEBSITE_REVALIDATION_SECRET
+                       # Shared secret — set to the SAME value as on the NGF main
+                       # app. Lets the portal's "Push to Website" bust this site's
+                       # content cache instantly via /api/revalidate. If unset, the
+                       # site still refreshes within 60s via ISR (see Content
+                       # caching & revalidation).
 ```
 
 If `NEXT_PUBLIC_SITE_URL` doesn't match the client_configs row, the portal can't deliver content and the site renders only hardcoded fallbacks.
@@ -644,12 +703,15 @@ When the bridge caches the default value of an annotated element on mount, it wa
 3. [ ] **`components/NgfEditBridge.tsx`** — copy from a current reference (NorthCove or WrenchTime)
 4. [ ] **`app/layout.tsx`** — mount `<NgfEditBridge />`, call `getNgfContent()` once, thread `content` through any layout components
 5. [ ] **`next.config.{js,ts}`** — add the CSP `frame-ancestors` header
-6. [ ] **Annotate every page** — wrap each editable element with all four `data-ngf-*` attributes (text, textarea, color, image) and use `data-ngf-group` on every list of cards
-7. [ ] **Always `||`, never `??`** for fallbacks
-8. [ ] **Vercel env vars** — `NEXT_PUBLIC_SITE_URL` (custom domain or vercel.app), optional `NGF_APP_URL`, plus your own (DB, Resend, Clerk if used)
-9. [ ] **Deploy to Vercel** — one project per client site
-10. [ ] **NGF admin** — set the client's `site_url` in `client_configs` to match `NEXT_PUBLIC_SITE_URL` exactly. The portal editor scrapes the schema on next load.
-11. [ ] **Verify in editor** — open the client portal, switch to Manage Sections, confirm all your annotated fields show up in the sidebar with real preview text
+6. [ ] **`app/api/revalidate/route.ts`** — copy from "Content caching & revalidation" so publishes bust the cache instantly
+7. [ ] **`vercel.json`** — add the `ignoreCommand` so docs-only commits don't burn build credit (see "Vercel build cost discipline")
+8. [ ] **Annotate every page** — wrap each editable element with all four `data-ngf-*` attributes (text, textarea, color, image) and use `data-ngf-group` on every list of cards
+9. [ ] **Always `||`, never `??`** for fallbacks
+10. [ ] **Vercel env vars** — `NEXT_PUBLIC_SITE_URL` (custom domain or vercel.app), optional `NGF_APP_URL`, `WEBSITE_REVALIDATION_SECRET` (same value as the NGF main app), plus your own (DB, Resend, Clerk if used)
+11. [ ] **Deploy to Vercel** — one project per client site
+12. [ ] **NGF admin** — set the client's `site_url` in `client_configs` to match `NEXT_PUBLIC_SITE_URL` exactly. The portal editor scrapes the schema on next load.
+13. [ ] **Verify in editor** — open the client portal, switch to Manage Sections, confirm all your annotated fields show up in the sidebar with real preview text
+14. [ ] **SEO launch gate** — run the full SEO checklist (SEO & analytics § 8). This is a **hard blocker** — do not flip a site live until every box is checked.
 
 ---
 
@@ -743,6 +805,50 @@ python3 github-push.py <repo-name> "feat: real summary"
 - **Don't `vercel --prod` from the CLI** unless you mean to deploy straight to production. Plain `vercel deploy` creates a preview URL but still uses build credit. Push-via-Git is the standard path.
 - **Don't push speculative debug commits to test on Vercel.** Reproduce locally; only push when the change is real.
 - **Don't ship a feature without running it locally at least once** — the build can pass and the runtime can still throw. `npm run dev` catches things `npx tsc --noEmit` won't.
+
+### Vercel build cost discipline — every repo gets a `vercel.json` ignoreCommand
+
+Every Vercel build burns build-minute credit. A repo with no ignore rule rebuilds on *every* push — including commits that only touch the README, docs, or other files that can't affect the deployed site. Ship a `vercel.json` with an `ignoreCommand` on day one so Vercel skips builds it doesn't need.
+
+**Minimum — skip docs-only commits.** Create `scripts/vercel-skip-docs.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Vercel inverts the usual convention: exit 0 = SKIP build, exit 1 = BUILD.
+# Build only if something OTHER than markdown/docs changed.
+if git diff --quiet HEAD^ HEAD -- . ':(exclude)*.md' ':(exclude)docs/**'; then
+  echo "Only docs/markdown changed — skipping build."
+  exit 0
+fi
+echo "Source changed — building."
+exit 1
+```
+
+Wire it up in `vercel.json`:
+
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "ignoreCommand": "bash scripts/vercel-skip-docs.sh"
+}
+```
+
+This is exactly what the NGF main app runs — copy it verbatim into every new client repo.
+
+**Inline one-liner alternative** if you'd rather not add a script file:
+
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':(exclude)*.md'"
+}
+```
+
+**Notes:**
+
+- The exit-code convention is backwards from intuition: **exit 0 skips the build, exit 1 runs it.** Get this wrong and you either never deploy or never skip.
+- On the first deploy there's no `HEAD^`; Vercel builds anyway. The ignore logic only kicks in on later commits.
+- `ignoreCommand` is the right tool for *"skip builds that can't matter."* It is NOT the tool for *"this repo should never auto-deploy at all"* — for that, turn off the Git integration's production/preview deploys in the Vercel project settings (Settings → Git → Ignored Build Step / connected branch). Don't try to permanently disable deploys with an always-skip ignoreCommand.
 
 ---
 
@@ -870,6 +976,46 @@ Mount in `app/layout.tsx`:
 
 Pick the `@type` that matches the client. Common ones: `LocalBusiness` (generic), `HomeAndConstructionBusiness` (builders), `AutoRepair` (mechanics), `Restaurant`, `Dentist`, `RealEstateAgent`. Full list at schema.org/docs/full.html.
 
+### 4b. Expanding structured data — Service, Review, FAQ
+
+`LocalBusiness` is the floor, not the ceiling. Layer these on when they match what the client actually offers — each one feeds a different rich-result surface in Google.
+
+**`Service`** — one per core service. Helps the site rank for "<service> near <city>" queries:
+
+```tsx
+const serviceData = {
+  '@context': 'https://schema.org',
+  '@type': 'Service',
+  serviceType: 'Motorcycle Repair',
+  provider: { '@type': 'AutoRepair', name: 'WrenchTime Cycles' },
+  areaServed: { '@type': 'City', name: 'Grand Rapids' },
+  hasOfferCatalog: {
+    '@type': 'OfferCatalog',
+    name: 'Services',
+    itemListElement: [
+      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Oil Change' } },
+      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Tire Replacement' } },
+    ],
+  },
+}
+```
+
+**`AggregateRating` / `Review`** — **only when the client has real, verifiable reviews.** Google penalizes fabricated review markup, and self-serving `Review` on `LocalBusiness` is against their guidelines unless it's genuine third-party review data. When legitimate, it pulls star ratings into the snippet. Nest into the `LocalBusiness` object:
+
+```tsx
+aggregateRating: {
+  '@type': 'AggregateRating',
+  ratingValue: '4.9',
+  reviewCount: '127',
+},
+```
+
+**`FAQPage`** — if the site has an FAQ section, mark it up so Google can show expandable Q&A directly in results. One `FAQPage` per page that has an FAQ.
+
+**Validate before launch.** Paste the live URL into the [Rich Results Test](https://search.google.com/test/rich-results), confirm zero errors and that the expected types are detected. This is part of the SEO launch gate below.
+
+**Auto-generation from `client_configs` (roadmap — not yet built).** Business name, address, phone, hours, service list, and review count already live in the NGF database per client. The high-leverage build is a single `<StructuredData client={config} />` component that reads the client's config and emits the correct `@type` + `Service` + `AggregateRating` JSON-LD automatically — so a new site gets complete, accurate structured data with zero hand-authoring and no NAP drift. Until that ships, hand-author per the patterns above. Tracked under "Roadmap — planned standards."
+
 ### 5. Google Analytics 4 — `gtag`
 
 Each client gets their own GA4 property. The measurement ID is exposed as `NEXT_PUBLIC_GA_ID` so the client-side gtag snippet can read it.
@@ -932,21 +1078,58 @@ NEXT_PUBLIC_GA_ID=G-XXXXXXXXXX
 
 That's it. The client now sees their own site analytics in their portal dashboard at `app.ngfsystems.com/portal/portal-dashboard`. They never touch GA4 directly.
 
-### 8. SEO checklist for any new site
+### 8. SEO launch gate — hard blocker for every new site
 
-Before flipping a new client site live:
+**This checklist is a launch gate, not a nice-to-have.** Do not flip a new client site live — do not tell the client it's launched — until every box is checked. A site that's invisible to Google is a site that doesn't do its job, and retrofitting SEO after launch means lost indexing time. Treat any unchecked box as a release blocker.
 
 - [ ] `app/layout.tsx` has root `metadata` with title template, description, openGraph, twitter
 - [ ] At least the homepage, services, about, contact have per-page `metadata.title` + `description`
 - [ ] `app/sitemap.ts` exists and lists every public page
 - [ ] `app/robots.ts` exists and points to the sitemap
 - [ ] `<StructuredData />` is mounted in root layout with the correct `@type` for the business
+- [ ] Structured data passes the [Rich Results Test](https://search.google.com/test/rich-results) with zero errors
 - [ ] `<GoogleAnalytics />` is mounted in root layout
 - [ ] `/public/og-image.jpg` exists (1200×630, brand-consistent)
 - [ ] `/public/favicon.ico` + `/public/icon.png` (Next 16 picks these up automatically)
 - [ ] `NEXT_PUBLIC_SITE_URL` and `NEXT_PUBLIC_GA_ID` set in Vercel env vars
 - [ ] GA4 property ID stored in NGF admin portal (so the client sees metrics in their dashboard)
-- [ ] After deploy: submit the sitemap URL to [Google Search Console](https://search.google.com/search-console) once
+- [ ] **Google Search Console:** property added + domain verified (DNS TXT record at the registrar, or the HTML-tag method via a `metadata.verification.google` entry in the root layout)
+- [ ] **Google Search Console:** sitemap URL submitted once after deploy
+- [ ] NAP (name / address / phone) on the site is byte-identical to the client's Google Business Profile (see Google Business Profile section)
+
+---
+
+## Google Business Profile — per-client local SEO setup
+
+Separate from the website but arguably higher-impact for a local business than anything on the site itself. The Google Business Profile (GBP) is what populates the Maps pin, the right-side knowledge panel, and the "near me" / local-pack results. A claimed, complete, active GBP routinely out-pulls on-site SEO for local intent. Treat it as a standard deliverable on every client launch.
+
+**This is a one-time-per-client setup done in the [Google Business Profile dashboard](https://business.google.com) — not code.** But it's part of what NGF delivers, so the standard lives here.
+
+### Setup workflow
+
+1. **Claim or create** the profile. If one already exists (Google auto-generates them for many businesses), **claim it — don't create a duplicate.** Duplicate profiles split signals and hurt ranking.
+2. **Verify** — Google sends a postcard, phone, or email code depending on the business type. Postcard verification can take several days, so **start this early in the engagement**, not at launch.
+3. **Complete every field** — Google rewards completeness:
+   - Exact business name (must match the website + NAP everywhere — see below)
+   - Primary category + relevant secondary categories (**category choice is a major ranking factor** — pick the most specific accurate primary)
+   - Address, or a defined service area for businesses without a storefront
+   - Phone + website URL (point it at the client's live NGF site)
+   - Hours, including holiday hours
+   - Services / products with descriptions
+   - Business description (up to 750 chars — keyword-aware but natural)
+4. **Photos** — logo, cover, interior/exterior, team, work samples. Profiles with photos get materially more calls and direction requests. Reuse assets from `_NGF\Clients\<Client>\Assets\`.
+5. **NAP consistency** — Name, Address, Phone must be **byte-identical** across the GBP, the website footer/contact page, the `LocalBusiness` JSON-LD, and any directory listing. Inconsistent NAP is one of the most common local-SEO killers. The site's canonical `brand.businessName` / `brand.phone` / `brand.address` fields must match the GBP exactly.
+6. **Link the website** — set the GBP website field to the live NGF domain so profile clicks flow into the client's GA4.
+
+### Ongoing (set client expectations up front)
+
+- **Reviews are the single biggest ongoing GBP ranking lever.** Encourage the client to ask happy customers for Google reviews and to respond to every one. Only add `AggregateRating` JSON-LD to the site once those reviews are real and live on the profile.
+- **Google Posts** (offers, updates, events) — optional, but active profiles rank better.
+- **Keep hours and photos current** — stale profiles decay in the rankings.
+
+### Where it fits in the launch
+
+Because verification can lag the website by days, **kick off GBP at the start of the engagement, not the end.** The website can go live without it; the GBP just needs to be in-flight. Add "GBP claimed + verification started" to the client onboarding checklist.
 
 ---
 
@@ -1269,6 +1452,34 @@ NGF main app additionally:
 | Phantom modifications in `git status` after AI edit session | CRLF/LF line-ending mismatch from Cowork mount writes. Diff every line as `-`/`+` with identical content. Either commit them as a one-time noise commit or `git checkout -- <files>` to discard |
 | Sign-in page stalls after CSP added | Clerk uses a custom subdomain (`clerk.<your-domain>`) for its Frontend API on production keys. CSP must explicitly list it in `script-src`, `connect-src`, AND `frame-src` — `*.clerk.com` does NOT cover it. Decode the publishable key (base64 part after `pk_live_`) to find the domain |
 | Image gallery feels custom or inconsistent across NGF sites | Don't build a custom lightbox. Use the `react-photo-view` pattern documented under "Universal interaction patterns" — every NGF site uses the same library and the same wrap-with-PhotoProvider pattern |
+| Published content takes up to 60s to appear on the live site | The site is caching correctly (`next: { revalidate: 60 }`) but the instant cache-bust isn't firing. Confirm `app/api/revalidate/route.ts` exists on the client site AND `WEBSITE_REVALIDATION_SECRET` matches the value on the NGF main app. With a matched secret, publishes appear sub-second; without it, you fall back to the 60s window |
+| `/api/revalidate` returns 401 when the portal publishes | `WEBSITE_REVALIDATION_SECRET` on the client site doesn't match the NGF main app's value (or isn't set). Set both to the same secret and redeploy the client site |
+| Neon CU-hours climbing fast for no obvious reason | A client site is still on `cache: 'no-store'` in `getNgfContent()` — every visitor pageview hits Neon. Migrate it to the tagged/revalidating fetch (see "Content caching & revalidation") |
+| Vercel rebuilds on every commit including README/docs edits | Missing or misconfigured `vercel.json` `ignoreCommand`. Add the docs-skip script (see "Vercel build cost discipline"). Remember the inverted convention: exit 0 skips, exit 1 builds |
+
+---
+
+## Roadmap — planned standards (not yet built)
+
+Items here are **agreed direction but not yet implemented.** Don't treat them as current standards — they're captured so that when they're built, they're built consistently across every repo. When an item ships, promote it up into the body of this doc and delete it from here.
+
+### Blog / articles in the portal editor
+
+**Goal:** let clients publish blog posts / articles from the NGF portal the same way they edit page content today — no developer in the loop. Blogging is a strong local-SEO lever (fresh, keyword-rich, internally-linked content) and a natural upsell on the $120/mo plan.
+
+**Intended architecture (consistent with the existing editor model):**
+
+- **Storage:** a new `Article` model in the NGF main-app Prisma schema, keyed by `client_id` — `title`, `slug`, `excerpt`, `body` (rich text / MDX-ish), `cover_image`, `status` (draft/published), `published_at`, `seo_title`, `seo_description`. Version-snapshot on publish like `websiteContentVersion`.
+- **Public API:** extend the public content API with `/api/public/articles?domain=…` (list) and `…/articles/<slug>` (single), using the same domain-resolution as `getNgfContent()`.
+- **Client-site rendering:** `/blog` index + `/blog/[slug]` detail pages, fetched with the same tagged/revalidating cache (`next: { revalidate: 60, tags: ['ngf-content'] }`) and busted by the same `/api/revalidate` on publish. Each article page emits `Article` + `BreadcrumbList` JSON-LD and its own per-page `metadata`.
+- **Editor UX:** a "Blog" surface in the portal — list of posts, create/edit with a rich-text editor, draft vs. publish, cover-image upload through the existing Sharp pipeline. Reuse the publish → push → revalidate flow already in place.
+- **Sitemap:** the client `app/sitemap.ts` must pull published article slugs so new posts get indexed.
+
+**Why it's a product build, not just a doc change:** it needs a schema migration, new API routes, a new editor surface, and client-site templates. Scope it as its own project. When shipped, promote this into a "## Blog" section near SEO and add `Article` to the structured-data section.
+
+### Auto-generated structured data from `client_configs`
+
+A `<StructuredData client={config} />` component that emits complete `LocalBusiness` + `Service` + `AggregateRating` JSON-LD from the client's NGF config, replacing hand-authored markup and eliminating NAP drift. Detailed under SEO & analytics § "4b. Expanding structured data."
 
 ---
 
@@ -1301,11 +1512,14 @@ When in doubt, copy a pattern from one of these:
 Before deploying any new NGF client site:
 
 - [ ] Framework Preset: **Next.js** (Vercel usually detects)
-- [ ] Env vars set: `NEXT_PUBLIC_SITE_URL` matches NGF database, plus whatever else the site needs (DB, Resend, Clerk)
+- [ ] Env vars set: `NEXT_PUBLIC_SITE_URL` matches NGF database, `NEXT_PUBLIC_GA_ID`, `WEBSITE_REVALIDATION_SECRET` (same value as NGF main app), plus whatever else the site needs (DB, Resend, Clerk)
+- [ ] `vercel.json` with `ignoreCommand` committed (docs-only commits skip the build)
+- [ ] `app/api/revalidate/route.ts` present (publishes bust the content cache instantly)
 - [ ] CSP `frame-ancestors` header in `next.config`
 - [ ] Custom domain DNS records configured at the registrar
 - [ ] After first successful deploy: in NGF admin → Clients → set this client's `site_url` to match
 - [ ] Open the client's portal editor — verify all annotated fields appear in the sidebar with real preview text
+- [ ] SEO launch gate passed (SEO & analytics § 8) — **hard blocker, do not flip live without it**
 
 For the NGF main app additionally:
 - [ ] Clerk production instance has session token customized + domain verified

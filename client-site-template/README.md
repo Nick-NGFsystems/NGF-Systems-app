@@ -1,166 +1,47 @@
 # NGF Client Site Template
 
-This template is the starting point for all NGF Systems client websites.
+Starting point for all NGF Systems client websites.
 
-## Quick Start
+> **The canonical spec for everything below is `NGF-STANDARDS.md`** (repo root, also served at
+> https://raw.githubusercontent.com/Nick-NGFsystems/NGF-Systems-app/main/NGF-STANDARDS.md).
+> This README deliberately does **not** re-document the editor integration, content contract,
+> caching rules, or env vars — duplicating them here is exactly how drift happens. When in doubt,
+> the standards file wins. The live reference implementations are
+> [`NorthCoveBuilders-Mockup`](https://github.com/Nick-NGFsystems/NorthCoveBuilders-Mockup) and
+> [`WrenchTime-Cycles`](https://github.com/Nick-NGFsystems/WrenchTime-Cycles).
 
-1. Deploy this template to Vercel (or any static host)
-2. Set environment variables in Vercel (see below)
-3. In the NGF admin panel: set `site_url`, verify it, enable `page_website` toggle
-4. Client can now edit their site from the NGF portal
+## Quick start
 
-## For Next.js Sites (Recommended)
+1. Fork `ngf-client-starter` (or copy the integration files from `NorthCoveBuilders-Mockup` if the starter is stale).
+2. Follow the **"Setup checklist for a new NGF client website"** in `NGF-STANDARDS.md` top to bottom.
+3. Deploy to Vercel (one project per client) and set the env vars listed in the standards.
+4. In the NGF admin panel: set `site_url`, verify it, enable the `page_website` toggle.
+5. Client can now edit their site from the portal.
 
-If you're building a Next.js site for a client, use the full integration pattern:
+## The current contract — at a glance
 
-### Required files
+These are the load-bearing facts a new build must get right. **Full detail and copy-paste code live in `NGF-STANDARDS.md`** — this is just the map so you know what to look up.
 
-**`lib/ngf.ts`** — Fetches content from NGF API:
-```typescript
-const NGF_CLIENT_ID = process.env.NGF_CLIENT_ID || 'CLIENT_ID_HERE'
-const NGF_API = 'https://app.ngfsystems.com'
+| Concern | Current standard (see NGF-STANDARDS.md) |
+|---|---|
+| Content fetch | `getNgfContent()` → `GET {NGF_APP_URL}/api/public/content?domain=<site domain>` |
+| Content shape | **Flat** dot-notation map: `Record<string, string>` (e.g. `content['hero.headline']`). Use `getItems()` for repeatable groups. |
+| Domain resolution | `NEXT_PUBLIC_SITE_URL` **first**, then `VERCEL_PROJECT_PRODUCTION_URL`, then `localhost`. Order matters — the vercel.app URL won't match `client_configs.site_url`. |
+| Caching | `fetch(url, { next: { revalidate: 60, tags: ['ngf-content'] } })`. **Never `cache: 'no-store'`** (burns Neon). |
+| Instant publish | `app/api/revalidate/route.ts` calls `revalidateTag('ngf-content')`, guarded by `WEBSITE_REVALIDATION_SECRET` (same value as the NGF main app). The portal's push handler pings it. |
+| Edit bridge | `components/NgfEditBridge.tsx` — **copy verbatim** from a current reference repo (NorthCove / WrenchTime). Do not hand-write or fork per-site. |
+| Editable markup | All four `data-ngf-*` attributes per element (`field`, `label`, `type`, `section`); `data-ngf-group` for card lists. |
+| Iframe embedding | CSP `frame-ancestors 'self' https://app.ngfsystems.com https://*.vercel.app` in `next.config`. |
+| Fallbacks | Always `||`, never `??` — published content can be an explicit `''`. |
 
-export interface NgfSiteContent {
-  [key: string]: Record<string, string> | undefined
-}
+## How editing works (client's perspective)
 
-export async function getNgfContent(): Promise<NgfSiteContent> {
-  try {
-    const res = await fetch(`${NGF_API}/api/public/website/${NGF_CLIENT_ID}`, {
-      next: { tags: ['ngf-content'], revalidate: false }
-    })
-    if (!res.ok) return {}
-    const data = await res.json() as { content?: NgfSiteContent }
-    return data.content ?? {}
-  } catch { return {} }
-}
-```
+1. Admin enables the `page_website` toggle and sets `site_url` for the client.
+2. Client opens the Website Editor in their portal — their live site loads in an iframe; editable fields glow on hover.
+3. Client clicks a field → sidebar edit form opens with the current value.
+4. Client edits → preview updates live → **Save** writes to the NGF database.
+5. **Push to Website** promotes the draft to published and pings the site's `/api/revalidate` → the live site updates within seconds.
 
-**`components/NgfEditBridge.tsx`** — Enables click-to-edit in the NGF portal editor:
-```typescript
-'use client'
-import { useEffect } from 'react'
+## Static HTML sites (`index.html` template)
 
-export default function NgfEditBridge() {
-  useEffect(() => {
-    let editMode = false
-    const style = document.createElement('style')
-    style.textContent = `
-      [data-ngf-edit="true"] [data-ngf-field] { cursor: pointer !important; outline: 2px solid transparent; border-radius: 3px; }
-      [data-ngf-edit="true"] [data-ngf-field]:hover { outline-color: #3b82f6 !important; background-color: rgba(59,130,246,0.08) !important; }
-      [data-ngf-edit="true"] a, [data-ngf-edit="true"] button { pointer-events: none; }
-    `
-    document.head.appendChild(style)
-    window.parent.postMessage({ type: 'ngfReady' }, '*')
-    const messageHandler = (e: MessageEvent) => {
-      if (e.data?.type === 'setEditMode') {
-        editMode = !!e.data.enabled
-        document.documentElement.setAttribute('data-ngf-edit', editMode ? 'true' : 'false')
-      }
-      if (e.data?.type === 'contentUpdate' && e.data.content) {
-        const content = e.data.content as Record<string, Record<string, string>>
-        Object.entries(content).forEach(([section, fields]) => {
-          if (typeof fields !== 'object') return
-          Object.entries(fields).forEach(([field, value]) => {
-            if (typeof value !== 'string') return
-            const el = document.querySelector<HTMLElement>(`[data-ngf-field="${section}.${field}"]`)
-            if (el) el.textContent = value
-          })
-        })
-      }
-    }
-    const clickHandler = (e: MouseEvent) => {
-      if (!editMode) return
-      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation()
-      let target = e.target as HTMLElement | null
-      while (target && target !== document.documentElement) {
-        const attr = target.getAttribute('data-ngf-field')
-        if (attr) {
-          const dot = attr.indexOf('.')
-          if (dot > -1) window.parent.postMessage({ type: 'fieldClick', section: attr.substring(0, dot), field: attr.substring(dot + 1), currentValue: target.textContent?.trim() ?? '' }, '*')
-          return
-        }
-        target = target.parentElement
-      }
-    }
-    window.addEventListener('message', messageHandler)
-    document.addEventListener('click', clickHandler, true)
-    return () => { window.removeEventListener('message', messageHandler); document.removeEventListener('click', clickHandler, true) }
-  }, [])
-  return null
-}
-```
-
-**`app/api/revalidate/route.ts`** — Triggers ISR cache clear when "Push to Website" is clicked:
-```typescript
-import { NextRequest, NextResponse } from 'next/server'
-import { revalidateTag } from 'next/cache'
-export async function GET(req: NextRequest) {
-  if (req.nextUrl.searchParams.get('secret') !== process.env.REVALIDATION_SECRET)
-    return NextResponse.json({ ok: false }, { status: 401 })
-  revalidateTag('ngf-content')
-  return NextResponse.json({ ok: true })
-}
-```
-
-**`next.config.js`** — Allow iframing from NGF app:
-```javascript
-const nextConfig = {
-  async headers() {
-    return [{ source: '/(.*)', headers: [
-      { key: 'Content-Security-Policy', value: "frame-ancestors 'self' https://app.ngfsystems.com" }
-    ]}]
-  }
-}
-module.exports = nextConfig
-```
-
-### Marking text as editable
-Add `data-ngf-field="section.fieldname"` to any element you want to be editable:
-```tsx
-<p data-ngf-field="hero.subheadline">{subheadline}</p>
-<span data-ngf-field="cta.buttonText">{ctaText}</span>
-<h2 data-ngf-field="features.title">{featuresTitle}</h2>
-```
-
-### Using API content with fallbacks
-```tsx
-// app/page.tsx
-export default async function Page() {
-  const ngf = await getNgfContent()
-  return <Hero ngf={ngf} />
-}
-
-// components/Hero.tsx
-export default function Hero({ ngf }) {
-  const subheadline = ngf?.hero?.subheadline || 'Your default text here'
-  return <p data-ngf-field="hero.subheadline">{subheadline}</p>
-}
-```
-
-## Environment Variables
-
-Set these in Vercel for each client site:
-
-| Variable | Value | Description |
-|----------|-------|-------------|
-| `NGF_CLIENT_ID` | (client's ID from NGF DB) | Which client this site belongs to |
-| `REVALIDATION_SECRET` | (same as `WEBSITE_REVALIDATION_SECRET` on NGF app) | Shared secret for cache revalidation |
-
-## How editing works
-
-1. Admin enables `page_website` toggle and sets `site_url` for the client
-2. Client opens "Website Editor" in their portal
-3. Their site loads in an iframe — editable fields glow blue on hover
-4. Client clicks a field → sidebar edit form opens with current value
-5. Client types → preview updates live
-6. "Done ✓ Save" → saves to NGF database
-7. "🚀 Push to Website" → triggers revalidation → live site updates within seconds
-
-## Static HTML Sites (index.html template)
-
-The `index.html` in this directory is a standalone static template that fetches
-from the NGF public API. It passes NGF verification automatically and can be
-hosted anywhere (GitHub Pages, Netlify, Vercel static, etc.).
-
-Set `NGF_API` and `CLIENT_ID` at the top of the script to connect it to your client.
+The `index.html` in this directory is a standalone static template that fetches from the NGF public API. It passes NGF verification automatically and can be hosted anywhere (GitHub Pages, Netlify, Vercel static). Set `NGF_API` and the client domain at the top of its script to connect it.

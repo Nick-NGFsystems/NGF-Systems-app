@@ -58,8 +58,9 @@ export async function POST() {
       console.error('[portal/website/push] snapshot failed (non-fatal)', versionErr)
     }
 
-    // Optionally ping the website's revalidate endpoint (non-fatal if it fails —
-    // the site uses cache: no-store so the new content appears on next page load anyway)
+    // Ping the website's revalidate endpoint so the publish appears instantly
+    // (non-fatal if it fails — client sites use ISR with `revalidate: 60`, so the
+    // new content still appears within 60s even if this ping never lands).
     if (client.config?.site_url) {
       const secret = process.env.WEBSITE_REVALIDATION_SECRET
       if (secret) {
@@ -71,7 +72,7 @@ export async function POST() {
             signal: AbortSignal.timeout(8000),
           })
         } catch {
-          // Non-fatal — site fetches fresh content on every load anyway
+          // Non-fatal — ISR (`revalidate: 60`) refreshes the site within 60s anyway
         }
       }
     }
