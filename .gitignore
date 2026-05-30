@@ -7,3 +7,9 @@ node_modules
 # clerk configuration (can include secrets)
 /.clerk/
 .claude-pat
+
+# Personal office docs / spreadsheets — keep them out of the repo so a
+# blanket push can never sweep them in (see NGFsystems-PL-Workbook incident).
+NGFsystems-PL-Workbook-2026.xlsx
+/*.xlsx
+/*.docx
