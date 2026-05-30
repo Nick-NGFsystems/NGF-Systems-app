@@ -13,3 +13,8 @@ node_modules
 NGFsystems-PL-Workbook-2026.xlsx
 /*.xlsx
 /*.docx
+
+# Session scratch docs — temporary handoff/plan files kept on disk only.
+# Ignored so a blanket `git add` can never commit them to main.
+/PORTAL-AUDIT-HANDOFF.md
+/IMAGE-PIPELINE-HARDENING.md
