@@ -17,6 +17,16 @@ const MAX_ARRAY_ITEMS = 100
 const MAX_PAYLOAD_BYTES = 250_000
 
 /**
+ * These handlers resolve the caller's client purely from `clerk_user_id`, so
+ * IDOR isn't possible — but they must still reject a LEAD-role user who happens
+ * to own a client row. Mirrors the role gate already used by the /versions and
+ * /reset routes so the whole portal-website surface is consistent.
+ */
+function isAllowedRole(role: unknown): boolean {
+  return role === 'client' || role === 'admin'
+}
+
+/**
  * Sanitize a content payload from the editor. The shape we accept is exactly
  * what the editor produces:
  *   { [sectionKey]: { [fieldKey]: string | boolean | Array<{ [k]: string | boolean }> } }
@@ -465,8 +475,11 @@ function fallbackSchema(): SiteSchema {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function GET() {
-  const { userId } = await auth()
+  const { userId, sessionClaims } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!isAllowedRole((sessionClaims?.metadata as { role?: string } | undefined)?.role)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   try {
     const client = await db.client.findUnique({
@@ -517,8 +530,11 @@ export async function GET() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
-  const { userId } = await auth()
+  const { userId, sessionClaims } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!isAllowedRole((sessionClaims?.metadata as { role?: string } | undefined)?.role)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   try {
     const client = await db.client.findUnique({
@@ -573,8 +589,11 @@ export async function POST(request: NextRequest) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function DELETE() {
-  const { userId } = await auth()
+  const { userId, sessionClaims } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!isAllowedRole((sessionClaims?.metadata as { role?: string } | undefined)?.role)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   try {
     const client = await db.client.findUnique({

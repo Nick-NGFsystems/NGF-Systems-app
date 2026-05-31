@@ -55,8 +55,11 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     const { fieldId } = await context.params
 
-    const field = await db.siteContent.findUnique({ where: { id: fieldId } })
-    if (!field || field.client_id !== clientId) {
+    // Scope the lookup to the caller's client_id in the query itself (not a
+    // post-fetch check) so the DB never returns another client's row — matches
+    // the IDOR-prevention invariant used across the other portal routes.
+    const field = await db.siteContent.findFirst({ where: { id: fieldId, client_id: clientId } })
+    if (!field) {
       return NextResponse.json({ success: false, error: 'Content field not found' }, { status: 404 })
     }
 
