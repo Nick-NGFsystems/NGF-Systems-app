@@ -462,6 +462,7 @@ function parseAspect(aspect?: string): number | undefined {
 async function getCroppedImageBlob(
   imageSrc: string,
   cropPixels: { x: number; y: number; width: number; height: number },
+  mimeType: 'image/jpeg' | 'image/png' = 'image/jpeg',
 ): Promise<Blob> {
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const el = new Image()
@@ -486,8 +487,8 @@ async function getCroppedImageBlob(
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       blob => blob ? resolve(blob) : reject(new Error('Failed to extract cropped image')),
-      'image/jpeg',
-      0.95,
+      mimeType,
+      mimeType === 'image/jpeg' ? 0.95 : undefined,   // quality ignored for PNG
     )
   })
 }
@@ -502,6 +503,7 @@ function isCroppable(mimeType: string): boolean {
 
 interface CropperModalProps {
   imageSrc: string
+  sourceMime: string
   aspect?: number
   onConfirm: (blob: Blob) => void
   onCancel: () => void
@@ -521,7 +523,7 @@ type CropperLikeProps = {
   objectFit?: string
 }
 
-function CropperModal({ imageSrc, aspect, onConfirm, onCancel }: CropperModalProps) {
+function CropperModal({ imageSrc, sourceMime, aspect, onConfirm, onCancel }: CropperModalProps) {
   // Lazy-loaded so the heavy crop library doesn't bloat the initial bundle.
   // The component is only rendered when the user picks a file.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -540,6 +542,7 @@ function CropperModal({ imageSrc, aspect, onConfirm, onCancel }: CropperModalPro
   const [crop, setCrop]       = useState({ x: 0, y: 0 })
   const [zoom, setZoom]       = useState(1)
   const [busy, setBusy]       = useState(false)
+  const [err, setErr]         = useState<string | null>(null)
   const cropPixelsRef         = useRef<{ x: number; y: number; width: number; height: number } | null>(null)
 
   const handleComplete = useCallback((_area: unknown, areaPixels: { x: number; y: number; width: number; height: number }) => {
@@ -548,12 +551,16 @@ function CropperModal({ imageSrc, aspect, onConfirm, onCancel }: CropperModalPro
 
   const handleConfirm = async () => {
     if (!cropPixelsRef.current) return
-    setBusy(true)
+    setBusy(true); setErr(null)
     try {
-      const blob = await getCroppedImageBlob(imageSrc, cropPixelsRef.current)
+      // M3: preserve alpha for PNG sources (logos) — JPEG output would flatten
+      // transparency to black.
+      const outMime = sourceMime === 'image/png' ? 'image/png' : 'image/jpeg'
+      const blob = await getCroppedImageBlob(imageSrc, cropPixelsRef.current, outMime)
       onConfirm(blob)
-    } catch (err) {
-      console.error('[Cropper] confirm failed:', err)
+    } catch (e) {
+      console.error('[Cropper] confirm failed:', e)
+      setErr('Could not process the crop. Try a different image or zoom level.')   // L5
       setBusy(false)
     }
   }
@@ -599,6 +606,10 @@ function CropperModal({ imageSrc, aspect, onConfirm, onCancel }: CropperModalPro
           </div>
         )}
       </div>
+
+      {err && (
+        <div className="flex-shrink-0 px-6 pb-1 text-xs text-red-300 bg-black/40">{err}</div>
+      )}
 
       <div className="flex-shrink-0 px-6 py-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between bg-black/40">
         <div className="flex items-center gap-3 flex-1 max-w-md">
@@ -652,6 +663,13 @@ function ImageField({
   const [cropSource, setCropSource]     = useState<{ url: string; mime: string } | null>(null)
 
   const aspectNumeric = parseAspect(aspect)
+
+  // L4: revoke an in-flight crop object URL if the field unmounts mid-crop
+  // (e.g. popover closed). The confirm/cancel paths already revoke on the
+  // happy path; this covers the unmount case so we don't leak object URLs.
+  useEffect(() => {
+    return () => { if (cropSource?.url) URL.revokeObjectURL(cropSource.url) }
+  }, [cropSource])
 
   async function uploadBlob(blob: Blob, filename: string) {
     setUploading(true)
@@ -709,10 +727,9 @@ function ImageField({
 
   async function handleCropConfirm(blob: Blob) {
     const url = cropSource?.url
-    const sourceMime = cropSource?.mime ?? 'image/jpeg'
     setCropSource(null)
     if (url) URL.revokeObjectURL(url)
-    const ext = sourceMime === 'image/png' ? 'png' : 'jpg'
+    const ext = blob.type === 'image/png' ? 'png' : 'jpg'   // M3: name matches the real mime
     await uploadBlob(blob, `cropped.${ext}`)
   }
 
@@ -806,6 +823,7 @@ function ImageField({
       {cropSource && (
         <CropperModal
           imageSrc={cropSource.url}
+          sourceMime={cropSource.mime}
           aspect={aspectNumeric}
           onConfirm={handleCropConfirm}
           onCancel={handleCropCancel}
