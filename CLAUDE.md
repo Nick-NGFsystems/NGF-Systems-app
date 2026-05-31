@@ -747,7 +747,6 @@ Things that are built but **not verified end-to-end**, or built for one client a
 
 | Area | Status | Notes |
 |---|---|---|
-| Vercel Blob token | ⚠️ Not provisioned in prod | `BLOB_READ_WRITE_TOKEN` not set on `ngf-systems-app` project. Image uploads from the editor fail with "Blob storage is not configured" until Storage → Create Blob → Connect Project is run once. |
 | WrenchTime published content | ⚠️ Cross-contaminated | Public content API for `wrench-time-cycles-mockup.vercel.app` returns a mix of NorthCove + WT fields (legacy from URL-switching before the snapshot-and-clear fix landed). Fix: Admin portal → ResetWebsiteContentButton on the affected client. |
 | `app/w/*` legacy routes | ⚠️ Wired but dormant | `/w/[clientId]` and `/w/domain/[domain]` still exist and the middleware still rewrites custom-domain hostnames to them. They use the pre-scraping fixed-shape `WebsiteContent` interface — broken for any new-shape client. No production domains should currently be routing through them, but verify before removing: check every `client_configs.site_url` against live Vercel domain aliases. Delete middleware rewrite (~lines 31–36) and `app/w/*` in the same commit. |
 | `<select><option>` editing | ❌ Not supported | Native browser UI; the bridge can't intercept option clicks. Contact form dropdowns on NorthCove and elsewhere are visually labeled but the option values aren't editable from the portal. |
