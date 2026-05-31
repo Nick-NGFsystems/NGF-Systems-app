@@ -2,6 +2,21 @@
 
 **This is the canonical foundation document for every NGF client website.** Fork/copy from `ngf-client-starter`, follow the rules below, and any site you build will plug into the NGF portal editor on day one.
 
+> **No client or project names appear in this file by design.** Standards are universal; concrete examples use neutral placeholders (e.g. `Acme Co`). Real per-project notes belong in that project's own `CLAUDE.md`, never here.
+
+## Contents
+
+- [Single source of truth](#single-source-of-truth) · [How to use this file](#how-to-use-this-file) · [How we work](#how-we-work--cowork-mode)
+- [Tech stack](#tech-stack)
+- [NGF Portal Editor Integration](#ngf-portal-editor-integration--the-foundation) — the foundation (required files, `lib/ngf.ts`, caching, bridge, annotation patterns, pitfalls)
+- [Setup checklist for a new site](#setup-checklist-for-a-new-ngf-client-website)
+- [Local development](#local-development--never-deploy-to-test)
+- [SEO & analytics](#seo--analytics--required-on-every-ngf-client-site) · [Google Business Profile](#google-business-profile--per-client-local-seo-setup)
+- [Database](#database--only-if-the-site-needs-its-own-data) · [Auth](#auth--only-if-the-site-needs-it) · [Security baseline](#security-baseline--required-on-every-ngf-site)
+- [Design system](#design-system--universal-rules--per-client-aesthetic) · [Universal interaction patterns](#universal-interaction-patterns)
+- [Absolute rules](#absolute-rules--never-break) · [Known issues / quick reference](#known-issues--quick-reference)
+- [Roadmap (planned standards)](#roadmap--planned-standards-not-yet-built) · [Reference implementation](#reference-implementation) · [Workflow](#workflow--how-we-build-a-feature) · [Deployment checklist](#deployment-checklist-vercel)
+
 ## Single source of truth
 
 **This file lives in exactly one place:**
@@ -17,16 +32,16 @@ https://raw.githubusercontent.com/Nick-NGFsystems/NGF-Systems-app/main/NGF-STAND
 
 **No client repo carries a local copy.** Every AI session fetches the URL on startup (per the user's global `~/.claude/CLAUDE.md`). Edits happen here only — there's nothing to sync, nothing to drift. If the canonical URL is ever unreachable, that's a fail-loud condition, not a fallback opportunity.
 
-The companion reference files — `NgfEditBridge.tsx` and `lib/ngf.ts` — also have canonical homes (NorthCoveBuilders-Mockup is the reference implementation). When client sites need to update them, the AI fetches the canonical version from that repo via raw URL.
+The companion integration files — `NgfEditBridge.tsx` and `lib/ngf.ts` — have a single canonical home in the **`ngf-client-starter`** repo. Always copy the current version from there; never hand-author your own or copy from an arbitrary existing site (they drift). See "Reference implementation" near the end of this file. *(Planned: ship these as a versioned `@ngf/editor-bridge` package so sites install rather than copy — see Roadmap.)*
 
 ## How to use this file
 
 At the start of any new NGF client-website session, paste:
-> "I'm starting a new NGFsystems client website. Read NGF-STANDARDS.md and follow it exactly. The reference implementations are NorthCoveBuilders-Mockup and WrenchTime-Cycles."
+> "I'm starting a new NGFsystems client website. Read NGF-STANDARDS.md and follow it exactly. The canonical integration files live in the `ngf-client-starter` repo."
 
 Two scopes are covered here:
 
-1. **Universal client-site standards** — apply to every NGF client website (NorthCove, WrenchTime, future sites). Most of this file.
+1. **Universal client-site standards** — apply to every NGF client website. Most of this file.
 2. **NGF main-app standards** — apply only to `NGF-Systems-app` itself (the admin portal at `app.ngfsystems.com`). Marked clearly. Most client sites can ignore them.
 
 For the main app's internal architecture (admin/portal routing, schema scraping pipeline, push API, version history, security invariants) read [`NGF-Systems-app/CLAUDE.md`](https://github.com/Nick-NGFsystems/NGF-Systems-app/blob/main/CLAUDE.md).
@@ -138,9 +153,9 @@ export async function getNgfContent(): Promise<NgfSiteContent> {
       .replace(/\/$/, '')
     const url = `${process.env.NGF_APP_URL || 'https://app.ngfsystems.com'}/api/public/content?domain=${encodeURIComponent(domain)}`
     // Cache the content fetch and revalidate on a 60s window so we don't hit
-    // Neon on every request. Tagged 'ngf-content' so the NGF push handler can
-    // bust the cache instantly via /api/revalidate when the client publishes.
-    // NEVER use cache: 'no-store' here — see "Content caching & revalidation".
+    // Neon on every request. On publish, the NGF push handler pings this site's
+    // /api/revalidate, which calls revalidatePath('/', 'layout') to bust the
+    // cache instantly. NEVER use cache: 'no-store' — see "Content caching & revalidation".
     const res = await fetch(url, { next: { revalidate: 60, tags: ['ngf-content'] } })
     if (!res.ok) return {}
     const data = (await res.json()) as { content?: NgfSiteContent }
@@ -200,16 +215,20 @@ Pages serve from cache and refresh at most once per 60 seconds. Neon sees roughl
 ```typescript
 // app/api/revalidate/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { revalidateTag } from 'next/cache'
+import { revalidatePath } from 'next/cache'
 
 export async function GET(req: NextRequest) {
   if (req.nextUrl.searchParams.get('secret') !== process.env.WEBSITE_REVALIDATION_SECRET) {
     return NextResponse.json({ ok: false }, { status: 401 })
   }
-  revalidateTag('ngf-content')
+  // Version-agnostic: revalidatePath('/', 'layout') busts every page under the
+  // root layout, so all pages calling getNgfContent() rebuild on next request.
+  revalidatePath('/', 'layout')
   return NextResponse.json({ ok: true, revalidated: true })
 }
 ```
+
+> **Why `revalidatePath('/', 'layout')` and not `revalidateTag`?** The tagged fetch in `lib/ngf.ts` still tags content `'ngf-content'`, but `revalidateTag`'s signature has shifted across Next versions (newer Next expects a second argument), so a bare `revalidateTag('ngf-content')` can silently no-op or throw depending on the version a site is on. `revalidatePath('/', 'layout')` is stable across Next 14/15/16 and busts exactly the pages that read NGF content. Use it as the default.
 
 **Shared secret** — set `WEBSITE_REVALIDATION_SECRET` on the client site's Vercel project to the **same value** as `WEBSITE_REVALIDATION_SECRET` on the NGF main app. The NGF push handler (`app/api/portal/website/push/route.ts`) reads its own copy and calls `https://<site_url>/api/revalidate?secret=<secret>` on every publish. Mismatched secrets → the endpoint 401s and the site falls back to the 60s window (still correct, just not instant).
 
@@ -217,7 +236,7 @@ export async function GET(req: NextRequest) {
 
 | Scenario | What happens |
 |---|---|
-| Client publishes via portal | Push handler pings `/api/revalidate` → `revalidateTag` → next request rebuilds from fresh content. Sub-second. |
+| Client publishes via portal | Push handler pings `/api/revalidate` → `revalidatePath('/', 'layout')` → next request rebuilds from fresh content. Sub-second. |
 | `WEBSITE_REVALIDATION_SECRET` unset or mismatched | No ping (or 401). Content still refreshes within 60s via ISR. |
 | Normal visitor traffic | Served from the ISR cache. Neon hit at most once per 60s per page. |
 
@@ -225,13 +244,12 @@ This is the single highest-leverage change for Neon cost: a busy client site dro
 
 **Migrating an existing site off `cache: 'no-store'`:** update its `lib/ngf.ts` fetch to the tagged/revalidating form above, add `app/api/revalidate/route.ts`, set `WEBSITE_REVALIDATION_SECRET` in Vercel, redeploy. No portal-side change needed — the push handler already pings every site that has a `site_url` set.
 
-### `components/NgfEditBridge.tsx` — copy verbatim from a current reference
+### `components/NgfEditBridge.tsx` — copy verbatim from the canonical starter
 
-The bridge is a moving target — its postMessage contract changes when the editor adds new features (image fields, repeatable group reorder, etc.). **Always copy the latest from a known-current reference implementation:**
-- [`NorthCoveBuilders-Mockup/components/NgfEditBridge.tsx`](https://github.com/Nick-NGFsystems/NorthCoveBuilders-Mockup/blob/main/components/NgfEditBridge.tsx)
-- [`WrenchTime-Cycles/components/NgfEditBridge.tsx`](https://github.com/Nick-NGFsystems/WrenchTime-Cycles/blob/main/components/NgfEditBridge.tsx)
+The bridge is a moving target — its postMessage contract changes when the editor adds new features (image fields, repeatable group reorder, etc.). **Always copy the latest from the single canonical source:**
+- [`ngf-client-starter/components/NgfEditBridge.tsx`](https://github.com/Nick-NGFsystems/ngf-client-starter)
 
-Both stay in sync after every editor change. **Do not write a new bridge from scratch and do not modify the bridge in a single client repo without propagating to all of them.** The bridge contract is documented in the NGF main app CLAUDE.md.
+**Do not write a new bridge from scratch, and do not copy it from an arbitrary existing client site** — copies drift, and a stale bridge silently breaks edit-mode behaviors. When the editor's contract changes, the starter's bridge is the one place that gets updated; every site then re-copies from it. The bridge contract is documented in the NGF main app `CLAUDE.md`. *(Planned: distribute the bridge as a versioned `@ngf/editor-bridge` package so sites pin a version instead of copying — see Roadmap.)*
 
 ### `app/layout.tsx` — required pattern
 
@@ -362,7 +380,7 @@ In edit mode, the bridge automatically renders overlay controls on every annotat
 
 All three controls reposition on scroll/resize via requestAnimationFrame so they stay glued to their images. Removed automatically when edit mode is disabled or when a card containing the image is removed. Together they solve the "managing 10-30 photos in one place is painful" problem from a client's perspective — they can replace, remove, or reorder every photo directly on the live preview without scrolling the sidebar.
 
-Sites get the new behavior automatically when their bridge is brought up to the canonical version (currently ~40 KB, lives at `NorthCoveBuilders-Mockup/components/NgfEditBridge.tsx`).
+Sites get the new behavior automatically when their bridge is brought up to the canonical version (currently ~40 KB, lives at `ngf-client-starter/components/NgfEditBridge.tsx`).
 
 **Server-side image optimization (automatic):**
 
@@ -592,8 +610,8 @@ Key points: 2 columns on mobile (large enough to manage), 3-4 columns on desktop
    **Right:**
    ```tsx
    // Top of page.tsx — single source of truth for repeated values
-   const businessName = content['brand.businessName'] || 'Square K Vacations'
-   const phone        = content['brand.phone']        || '(231) 555-0123'
+   const businessName = content['brand.businessName'] || 'Acme Co'
+   const phone        = content['brand.phone']        || '(555) 555-0123'
 
    // Header
    <h1 data-ngf-field="brand.businessName" data-ngf-label="Business Name" data-ngf-type="text" data-ngf-section="Brand">
@@ -609,9 +627,9 @@ Key points: 2 columns on mobile (large enough to manage), 3-4 columns on desktop
    **Wrong (creates two separate fields in the editor that don't sync):**
    ```tsx
    // Header
-   <h1 data-ngf-field="brand.businessName">{content['brand.businessName'] || 'Square K'}</h1>
+   <h1 data-ngf-field="brand.businessName">{content['brand.businessName'] || 'Acme Co'}</h1>
    // Footer — DIFFERENT path
-   <p data-ngf-field="footer.businessName">{content['footer.businessName'] || 'Square K'}</p>
+   <p data-ngf-field="footer.businessName">{content['footer.businessName'] || 'Acme Co'}</p>
    ```
 
    Three rules of thumb:
@@ -698,9 +716,9 @@ When the bridge caches the default value of an annotated element on mount, it wa
 
 ## Setup checklist for a new NGF client website
 
-1. [ ] **Fork** [`ngf-client-starter`](https://github.com/Nick-NGFsystems/ngf-client-starter) (or copy the integration files from `NorthCoveBuilders-Mockup` if the starter is stale — see Known Issues)
-2. [ ] **`lib/ngf.ts`** — copy verbatim from this doc
-3. [ ] **`components/NgfEditBridge.tsx`** — copy from a current reference (NorthCove or WrenchTime)
+1. [ ] **Fork** [`ngf-client-starter`](https://github.com/Nick-NGFsystems/ngf-client-starter) — the canonical source for all integration files
+2. [ ] **`lib/ngf.ts`** — copy verbatim from `ngf-client-starter` (also reproduced in this doc)
+3. [ ] **`components/NgfEditBridge.tsx`** — copy verbatim from `ngf-client-starter`
 4. [ ] **`app/layout.tsx`** — mount `<NgfEditBridge />`, call `getNgfContent()` once, thread `content` through any layout components
 5. [ ] **`next.config.{js,ts}`** — add the CSP `frame-ancestors` header
 6. [ ] **`app/api/revalidate/route.ts`** — copy from "Content caching & revalidation" so publishes bust the cache instantly
@@ -986,15 +1004,15 @@ Pick the `@type` that matches the client. Common ones: `LocalBusiness` (generic)
 const serviceData = {
   '@context': 'https://schema.org',
   '@type': 'Service',
-  serviceType: 'Motorcycle Repair',
-  provider: { '@type': 'AutoRepair', name: 'WrenchTime Cycles' },
-  areaServed: { '@type': 'City', name: 'Grand Rapids' },
+  serviceType: 'Primary Service Category',
+  provider: { '@type': 'LocalBusiness', name: 'Acme Co' },
+  areaServed: { '@type': 'City', name: 'City Name' },
   hasOfferCatalog: {
     '@type': 'OfferCatalog',
     name: 'Services',
     itemListElement: [
-      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Oil Change' } },
-      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Tire Replacement' } },
+      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Service One' } },
+      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Service Two' } },
     ],
   },
 }
@@ -1065,7 +1083,7 @@ NEXT_PUBLIC_GA_ID=G-XXXXXXXXXX
 
 `NEXT_PUBLIC_SITE_URL` was already required for the editor integration. `NEXT_PUBLIC_GA_ID` is the GA4 measurement ID (starts with `G-`).
 
-### 7. Per-client GA4 setup — what Nick has to do once per site
+### 7. Per-client GA4 setup — what the NGF operator does once per site
 
 **Inside Google Analytics:**
 1. Admin → Create Property (one per client)
@@ -1267,11 +1285,11 @@ Run a security audit (manual or AI-driven) on each site at least once per major 
 
 ## Design system — universal rules + per-client aesthetic
 
-Each client site has its own visual identity — colors, typography, density, theme — driven by the brand the client already has. **Do NOT default every new site to a particular look.** Before designing anything, ask the user what direction this client wants, or look at existing client materials (logo, existing site, brand guide) for cues. Examples in our portfolio:
-- **NorthCove Builders** — light theme, deep navy brand color (`#0f2f57`), serif headings, soft shadows on white cards
-- **WrenchTime Cycles** — bright cyan + orange accents, dark slate panels, technical/industrial typography
+Each client site has its own visual identity — colors, typography, density, theme — driven by the brand the client already has. **Do NOT default every new site to a particular look.** Before designing anything, ask the user what direction this client wants, or look at existing client materials (logo, existing site, brand guide) for cues. Two illustrative archetypes (deliberately opposite, to show the range):
+- **A builder / professional-services site** — light theme, a single deep brand color, serif headings, soft shadows on white cards
+- **A trade / industrial site** — bright accent pair, dark slate panels, technical/condensed typography
 
-Both follow the universal rules below. Neither is "the NGF look."
+Both follow the universal rules below. Neither is "the NGF look" — there is no NGF house style.
 
 ### Universal rules — apply to every client site regardless of aesthetic
 
@@ -1435,7 +1453,7 @@ NGF main app additionally:
 | Stored value renders as empty instead of fallback | You used `??` instead of `||`. Empty strings only fall through with `||` |
 | Editor preview iframe blocked by browser | Missing `frame-ancestors 'self' https://app.ngfsystems.com https://*.vercel.app` in CSP header |
 | Portal editor "site_url not NGF" | Either `NEXT_PUBLIC_SITE_URL` doesn't match `client_configs.site_url`, or your site's HTML doesn't include the `ngf-public-api` meta tag (verify by viewing source) |
-| Bridge version mismatch | The bridge file in this repo is older than the editor expects. Copy from NorthCove/WrenchTime current main |
+| Bridge version mismatch | The bridge file in this repo is older than the editor expects. Re-copy `NgfEditBridge.tsx` from `ngf-client-starter` (the canonical source) |
 | Newly-added card looks like a duplicate of the last card | Bridge clones the last child as a template, then resets text to placeholders + image to a grey "Click to set image" SVG. If your site uses non-standard markup the reset may be incomplete; check the bridge's `addGroupItem` handler |
 | Custom domain renders only hardcoded defaults | `NEXT_PUBLIC_SITE_URL` Vercel env var doesn't match `client_configs.site_url` exactly (case, www, trailing slash matter) |
 | `<select><option>` editing | Not supported by the bridge — native browser UI. Use `data-ngf-field` for the label only |
@@ -1481,15 +1499,22 @@ Items here are **agreed direction but not yet implemented.** Don't treat them as
 
 A `<StructuredData client={config} />` component that emits complete `LocalBusiness` + `Service` + `AggregateRating` JSON-LD from the client's NGF config, replacing hand-authored markup and eliminating NAP drift. Detailed under SEO & analytics § "4b. Expanding structured data."
 
+### Package the editor integration as `@ngf/editor-bridge`
+
+**Goal:** eliminate the copy-verbatim fragility for `NgfEditBridge.tsx` + `lib/ngf.ts`. Today every site hand-copies these from `ngf-client-starter`, so a contract change means re-copying into N repos, and stale copies silently break edit-mode behaviors.
+
+**Intended shape:** publish the bridge, `lib/ngf.ts`, and the CSP/revalidate boilerplate as a versioned package (private npm registry or a git-tagged dependency). Sites `npm install @ngf/editor-bridge@^x` and import — pinning a version instead of copying source. The bridge keeps a `BRIDGE_VERSION` constant the editor can read so the portal can warn when a site is on an incompatible version. Until this ships, `ngf-client-starter` is the single canonical copy-from source.
+
 ---
 
-## Reference implementations
+## Reference implementation
 
-When in doubt, copy a pattern from one of these:
+There is exactly one canonical reference, kept current as the editor evolves:
 
-- **[`NorthCoveBuilders-Mockup`](https://github.com/Nick-NGFsystems/NorthCoveBuilders-Mockup)** — fully annotated marketing site. No auth, no DB beyond contact form. Best reference for pure content-driven NGF integration. Uses Next.js 16 + React 19 + Drizzle.
-- **[`WrenchTime-Cycles`](https://github.com/Nick-NGFsystems/WrenchTime-Cycles)** — service-shop site with its own external Neon DB for `ServiceRequest`, Clerk for shop-owner auth, tokenized public booking links. Best reference for sites that need their own data + customer-facing token flows. See [`wrenchtime-cycles/CLAUDE.md`](https://github.com/Nick-NGFsystems/WrenchTime-Cycles/blob/main/wrenchtime-cycles/CLAUDE.md) for project-specific details.
-- **[`NGF-Systems-app`](https://github.com/Nick-NGFsystems/NGF-Systems-app)** — the admin portal itself. Read its [`CLAUDE.md`](https://github.com/Nick-NGFsystems/NGF-Systems-app/blob/main/CLAUDE.md) when integrating new editor features (it has the full bridge + scraper architecture, security invariants, version history, etc.).
+- **[`ngf-client-starter`](https://github.com/Nick-NGFsystems/ngf-client-starter)** — the canonical client-site reference. Holds the authoritative `NgfEditBridge.tsx`, `lib/ngf.ts`, CSP/`next.config`, `app/api/revalidate/route.ts`, `vercel.json`, and fully-annotated example sections covering every field type and pattern in this doc. **Copy integration files from here, never from a live client site** (client copies drift). When the editor contract changes, this is the one repo that gets updated first.
+- **[`NGF-Systems-app`](https://github.com/Nick-NGFsystems/NGF-Systems-app)** — the admin portal itself. Read its [`CLAUDE.md`](https://github.com/Nick-NGFsystems/NGF-Systems-app/blob/main/CLAUDE.md) when integrating new editor features (full bridge + scraper architecture, security invariants, version history).
+
+Individual client sites are **not** reference material — anything project-specific lives in that project's own `CLAUDE.md`, never in this universal standard.
 
 ---
 

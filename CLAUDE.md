@@ -320,7 +320,7 @@ Opens when a `fieldClick` message is received. Input type is determined by `reso
 - `text` → single-line `<input>`
 - `textarea` → `<textarea>` (resizable, 4 rows desktop / 5 rows mobile sheet)
 - `color` → `<input type="color">` + hex text field side by side
-- `image` → rendered by the `ImageField` sub-component: URL text input, an **Upload from computer** button wired to `POST /api/portal/upload` (5 MB max, jpg/png/webp/gif/svg, stored in Vercel Blob, returns a public URL), and a live preview thumbnail. Pasting a URL and uploading a file both end up writing the same single `src` value into `content[section][field]`.
+- `image` → rendered by the `ImageField` sub-component: URL text input, an **Upload from computer** button wired to `POST /api/portal/upload` (25 MB max upload, jpg/png/webp/gif/svg; raster + SVG are optimized to WebP server-side via the Sharp pipeline, GIF passes through, stored in Vercel Blob, returns a public URL), an optional cropper (locked to `data-ngf-aspect` when present), alt-text field, and a live preview thumbnail. Pasting a URL and uploading a file both end up writing the same single `src` value into `content[section][field]`.
 
 `computePopoverPosition(iframeRect, elementRect)` positions the popover below the clicked element (flips above if not enough room below). On mobile (`window.innerWidth < 640`) it always renders as a bottom sheet instead.
 
@@ -443,7 +443,7 @@ Domain matching normalizes `https://`, `www.`, and trailing slashes. Returns `{ 
 
 Each client site has `lib/ngf.ts` with two exports:
 
-**`getNgfContent(): Promise<Record<string, string>>`** — server-side fetch, called at the top of every page component. Resolves the domain from env vars in priority order: `NEXT_PUBLIC_SITE_URL` → `VERCEL_PROJECT_PRODUCTION_URL` → `localhost:3000`. The API base defaults to `https://app.ngfsystems.com` but can be overridden with `NGF_APP_URL`. Always uses `cache: 'no-store'` so pages always get the latest published content. Returns `{}` on any error — never throws.
+**`getNgfContent(): Promise<Record<string, string>>`** — server-side fetch, called at the top of every page component. Resolves the domain from env vars in priority order: `NEXT_PUBLIC_SITE_URL` → `VERCEL_PROJECT_PRODUCTION_URL` → `localhost:3000`. The API base defaults to `https://app.ngfsystems.com` but can be overridden with `NGF_APP_URL`. Uses time-based ISR — `fetch(url, { next: { revalidate: 60, tags: ['ngf-content'] } })` — so pages serve from cache and refresh at most once per 60s (busted instantly on publish via the site's `/api/revalidate`). **Do not use `cache: 'no-store'`** — it hits Neon on every pageview; see the "Content caching & revalidation" standard in NGF-STANDARDS.md. Any legacy site still on `no-store` should be migrated. Returns `{}` on any error — never throws.
 
 **`getItems(content, prefix): Record<string, string>[]`** — extracts a dynamic array from flat dot-notation keys. `getItems(content, 'services.items')` scans all keys starting with `services.items.`, extracts unique integer indices, and returns an array of objects like `[{ name: '...', price: '...' }]`. Used to render repeatable sections.
 
