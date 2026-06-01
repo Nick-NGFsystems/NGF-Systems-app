@@ -10,11 +10,13 @@
 - [Tech stack](#tech-stack)
 - [NGF Portal Editor Integration](#ngf-portal-editor-integration--the-foundation) — the foundation (required files, `lib/ngf.ts`, caching, bridge, annotation patterns, pitfalls)
 - [Setup checklist for a new site](#setup-checklist-for-a-new-ngf-client-website)
+- [Site lifecycle — launch, domain changes, recovery](#site-lifecycle--launch-domain-changes-and-recovery) — **read before changing any live site's domain**
 - [Local development](#local-development--never-deploy-to-test)
 - [SEO & analytics](#seo--analytics--required-on-every-ngf-client-site) · [Google Business Profile](#google-business-profile--per-client-local-seo-setup)
 - [Database](#database--only-if-the-site-needs-its-own-data) · [Auth](#auth--only-if-the-site-needs-it) · [Security baseline](#security-baseline--required-on-every-ngf-site)
 - [Design system](#design-system--universal-rules--per-client-aesthetic) · [Universal interaction patterns](#universal-interaction-patterns)
 - [Absolute rules](#absolute-rules--never-break) · [Known issues / quick reference](#known-issues--quick-reference)
+- [Adding a new feature — integration blueprint](#adding-a-new-feature--the-integration-blueprint) — blog / shop / booking / calendar / any collection
 - [Roadmap (planned standards)](#roadmap--planned-standards-not-yet-built) · [Reference implementation](#reference-implementation) · [Workflow](#workflow--how-we-build-a-feature) · [Deployment checklist](#deployment-checklist-vercel)
 
 ## Single source of truth
@@ -730,6 +732,44 @@ When the bridge caches the default value of an annotated element on mount, it wa
 12. [ ] **NGF admin** — set the client's `site_url` in `client_configs` to match `NEXT_PUBLIC_SITE_URL` exactly. The portal editor scrapes the schema on next load.
 13. [ ] **Verify in editor** — open the client portal, switch to Manage Sections, confirm all your annotated fields show up in the sidebar with real preview text
 14. [ ] **SEO launch gate** — run the full SEO checklist (SEO & analytics § 8). This is a **hard blocker** — do not flip a site live until every box is checked.
+
+---
+
+## Site lifecycle — launch, domain changes, and recovery
+
+A client's editor content lives in the NGF database (`website_content`, keyed to their client record). The **live site finds that content by matching two values that must always agree**:
+
+- `client_configs.site_url` (set in the NGF admin) — what the editor scrapes and what the content API matches on.
+- `NEXT_PUBLIC_SITE_URL` (the client site's Vercel env var) — what `getNgfContent()` sends to the content API.
+
+Both are normalized (protocol / `www.` / trailing slash stripped). **If they don't match, the content API returns `{}` and the live site silently renders only its hardcoded fallbacks** — the #1 cause of "the site looks wrong / my edits are gone after going live."
+
+### The mockup → production-domain promotion (the common flow)
+
+Building on a preview URL (e.g. `*.vercel.app`), letting the client edit, then attaching the real domain is the normal path. Do it safely:
+
+1. **While mocking:** set `client_configs.site_url` to the preview URL **and** `NEXT_PUBLIC_SITE_URL` to the same value. The client edits and publishes against the preview.
+2. **Going live — flip BOTH URLs together, then redeploy:**
+   - In NGF admin, change `client_configs.site_url` to the real domain.
+   - On the client's Vercel project, change `NEXT_PUBLIC_SITE_URL` to the same real domain → **redeploy** so the new value ships.
+   - Changing only one of the two is the classic break. They are a pair.
+3. **Content is preserved across the change.** A `site_url` change writes a *restore-point* snapshot into version history but **does not clear** the live content (this was changed after a production incident where setting the real domain wiped a client's saved edits). The client's edits carry straight over to the real domain.
+4. **Verify on the real domain** before telling the client it's live: load it and confirm their edited content renders (not the bare defaults).
+
+> **Best practice:** when feasible, point `site_url` / `NEXT_PUBLIC_SITE_URL` at the **final domain from the start** so there's no flip at all. If you must mock first, treat go-live as one atomic step: *both URLs change together, redeploy, verify.*
+
+### Recovery — "the live site shows defaults / the client's content is gone"
+
+Don't panic; content is almost never actually lost. Work the checklist in order:
+
+1. **Check the URL pair first.** Confirm `NEXT_PUBLIC_SITE_URL` (Vercel) matches `client_configs.site_url` (admin) exactly after normalization. A mismatch makes content *look* gone when it's fine — fix the env var, redeploy, and it returns. Confirm directly: `GET https://app.ngfsystems.com/api/public/content?domain=<the-real-domain>` should return the client's content, not `{}`.
+2. **If the content row really is empty,** restore from version history: open the client's editor → **View history** → find the most recent good snapshot (look for a `Restore point — domain changed…` entry or a dated publish) → **Revert**. That promotes the snapshot back to live content.
+3. **Re-publish** and re-verify on the live domain.
+4. **Never** start fixing by re-typing fields from scratch — restore first, or you'll overwrite a recoverable snapshot.
+
+### Deliberate wipes
+
+Clearing a client's content is a real, occasional need (a client row genuinely repurposed for a different site, real cross-contamination). It is an **explicit, separate action** — the **Reset Website Content** button on `/admin/portal/[clientId]` — never a silent side effect of changing settings. If you want a fresh start, use that button; otherwise every other operation preserves content.
 
 ---
 
@@ -1455,7 +1495,8 @@ NGF main app additionally:
 | Portal editor "site_url not NGF" | Either `NEXT_PUBLIC_SITE_URL` doesn't match `client_configs.site_url`, or your site's HTML doesn't include the `ngf-public-api` meta tag (verify by viewing source) |
 | Bridge version mismatch | The bridge file in this repo is older than the editor expects. Re-copy `NgfEditBridge.tsx` from `ngf-client-starter` (the canonical source) |
 | Newly-added card looks like a duplicate of the last card | Bridge clones the last child as a template, then resets text to placeholders + image to a grey "Click to set image" SVG. If your site uses non-standard markup the reset may be incomplete; check the bridge's `addGroupItem` handler |
-| Custom domain renders only hardcoded defaults | `NEXT_PUBLIC_SITE_URL` Vercel env var doesn't match `client_configs.site_url` exactly (case, www, trailing slash matter) |
+| Custom domain renders only hardcoded defaults | `NEXT_PUBLIC_SITE_URL` Vercel env var doesn't match `client_configs.site_url` exactly (case, www, trailing slash matter). When changing a domain, **both** must change together — see "Site lifecycle" |
+| Client's edits "disappeared" after the real domain was set | Almost always the URL pair is out of sync (fix #1 above), not lost data. Content is preserved across `site_url` changes and a restore-point snapshot is in version history. Recovery steps under "Site lifecycle — recovery." Do NOT re-type from scratch — restore first |
 | `<select><option>` editing | Not supported by the bridge — native browser UI. Use `data-ngf-field` for the label only |
 | Hydration mismatch with `data-ngf-edit` attribute | The bridge sets `data-ngf-edit` on `<html>` only when the parent is the portal iframe. Don't set it server-side |
 | Clerk v7 JWT format broken | Pin `@clerk/nextjs@6` |
@@ -1474,6 +1515,37 @@ NGF main app additionally:
 | `/api/revalidate` returns 401 when the portal publishes | `WEBSITE_REVALIDATION_SECRET` on the client site doesn't match the NGF main app's value (or isn't set). Set both to the same secret and redeploy the client site |
 | Neon CU-hours climbing fast for no obvious reason | A client site is still on `cache: 'no-store'` in `getNgfContent()` — every visitor pageview hits Neon. Migrate it to the tagged/revalidating fetch (see "Content caching & revalidation") |
 | Vercel rebuilds on every commit including README/docs edits | Missing or misconfigured `vercel.json` `ignoreCommand`. Add the docs-skip script (see "Vercel build cost discipline"). Remember the inverted convention: exit 0 skips, exit 1 builds |
+
+---
+
+## Adding a new feature — the integration blueprint
+
+Every new capability a site might need — blog, shop/products, booking, calendar/events, testimonials, FAQ, team directory, photo galleries, downloadable resources — plugs into the NGF ecosystem **the same way**. This is the contract so we never reinvent the plumbing per feature, and so every feature is editable, cacheable, and SEO-correct by default. **Build a new feature by following this blueprint, not by inventing a parallel system.**
+
+### Step 0 — classify the feature
+
+Two shapes, two paths. Decide which before writing anything:
+
+- **Page content** — fixed fields on a page (hero text, an about paragraph, a service card's name/price, a single image). → **No new data model.** Annotate the elements with `data-ngf-*` (see "Self-describing markup") and they're editable immediately. This covers ~80% of "features."
+- **Structured collection** — a variable-length list of records the client manages (blog posts, products, bookings, calendar events, team members). → **Follow the full blueprint below** (new model + public API + editor surface).
+
+If it's a list the client adds/removes/reorders items in, it's a collection. If it's a fixed set of fields, it's page content — and repeatable groups (`data-ngf-group`) already cover small in-page lists (services, reviews, gallery) without a new model.
+
+### The collection contract — every structured feature satisfies all of these
+
+1. **Data, keyed by `client_id`.** A new model in the NGF Prisma schema (or the client's own external DB for client-owned operational data like bookings — see "Service Requests"). Mirror the `website_content` pattern: a published state, an optional draft, and a **version snapshot on publish** (like `website_content_versions`) so edits are revertible. Multi-tenant queries always filter by `client_id` at the ORM level.
+2. **A feature flag in `client_configs`.** Gate the whole surface on a boolean (`feature_blog`, `feature_products`, `feature_booking`, `feature_gallery` exist; add new ones as needed). The portal renders the feature's surface only when its flag is on; the public API returns empty when off.
+3. **A public read API under `/api/public/*`.** Same domain resolution as `getNgfContent()` (match by normalized `site_url`), full CORS, **no auth**, and **return `{}` / `[]` when empty** so the client site falls through to its hardcoded defaults instead of 404ing. List + single-item endpoints (e.g. `/api/public/articles?domain=…` and `…/articles/<slug>`).
+4. **Client-site rendering with the shared cache.** Fetch with the **same ISR cache** as content — `fetch(url, { next: { revalidate: 60, tags: ['ngf-content'] } })` — and it's busted by the **same `/api/revalidate`** on publish. Never `cache: 'no-store'`. Always `||` fallbacks. Emit the right **JSON-LD** (`Article`/`BreadcrumbList` for posts, `Product`/`Offer` for shop, `Event` for calendar) and per-page `metadata`.
+5. **An editor surface that reuses the publish model.** Edits flow **draft → publish → push → revalidate**, exactly like the website editor. Every endpoint obeys the security invariants: identity from the Clerk session (`clerk_user_id`), every read/write scoped to the resolved `client.id`, role re-checked in the handler, never trust a `client_id` from input.
+6. **Sitemap wiring.** Dynamic URLs (blog slugs, product pages) must be emitted by the client site's `app/sitemap.ts` so they get indexed. A collection that isn't in the sitemap is invisible to Google.
+7. **The security baseline applies in full** — input validation, prototype-pollution stripping, SSRF guards on any user-influenced fetch, webhook signature verification, secrets never `NEXT_PUBLIC_`.
+
+### Why this matters
+
+Following the contract means a new feature inherits — for free — the editor's draft/publish/revert UX, the 60s ISR + instant cache-bust (near-zero Neon load), the domain-resolution and content-API plumbing, the version history, and the SEO surface. A feature built *off* the contract (its own cache strategy, its own auth, its own API shape) is where bugs, data loss, and "works on one site but not another" come from. **One canonical path per piece of data; reuse the machinery; no parallel systems.**
+
+Concrete planned instances of this blueprint (blog, auto-generated structured data) are tracked in the Roadmap below — each one is just this contract applied to a specific feature.
 
 ---
 
