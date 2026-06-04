@@ -32,20 +32,21 @@ export function monthlyAmount(amount: number, frequency: string): number {
   return frequency === 'YEARLY' ? amount / 12 : amount
 }
 
-/** True when a recurring expense's active window overlaps the given month.
- *  Matches the server-side logic in app/admin/finances/page.tsx exactly. */
-export function isExpenseActiveInMonth(
-  startDate: string,
+/** True when a recurring stream's active window overlaps the given month.
+ *  A null `startDate` means "no lower bound" (active from the beginning); a null
+ *  `endDate` means "no upper bound" (ongoing). Used for both recurring expenses
+ *  (always have a start) and recurring income (start optional). Matches the
+ *  server-side logic in app/admin/finances/page.tsx. */
+export function isActiveInMonth(
+  startDate: string | null,
   endDate: string | null,
   year: number,
   monthIndex: number,
 ): boolean {
   const monthStart = new Date(year, monthIndex, 1)
   const monthEnd = new Date(year, monthIndex + 1, 0)
-  const start = new Date(startDate)
-  const end = endDate ? new Date(endDate) : null
-  if (start > monthEnd) return false
-  if (end && end < monthStart) return false
+  if (startDate && new Date(startDate) > monthEnd) return false
+  if (endDate && new Date(endDate) < monthStart) return false
   return true
 }
 

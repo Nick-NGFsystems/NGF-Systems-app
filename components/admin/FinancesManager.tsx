@@ -11,6 +11,8 @@ interface RecurringIncome {
   name: string
   amount: number
   frequency: string
+  start_date: string | null
+  end_date: string | null
   notes: string | null
   created: string
   updated: string
@@ -252,6 +254,8 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
   const [frequency, setFrequency] = useState('YEARLY')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [notes, setNotes] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -261,6 +265,8 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
     setName('')
     setAmount('')
     setFrequency('YEARLY')
+    setStartDate('')
+    setEndDate('')
     setNotes('')
   }
 
@@ -276,6 +282,8 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
     setName(income.name)
     setAmount(String(income.amount))
     setFrequency(income.frequency)
+    setStartDate(income.start_date ? income.start_date.slice(0, 10) : '')
+    setEndDate(income.end_date ? income.end_date.slice(0, 10) : '')
     setNotes(income.notes ?? '')
     setIsModalOpen(true)
   }
@@ -297,6 +305,8 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
           name,
           amount: Number(amount),
           frequency,
+          startDate: startDate || null,
+          endDate: endDate || null,
           notes: notes || null,
         }),
       })
@@ -359,6 +369,12 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
                 <p className="text-sm text-gray-500">
                   {formatCurrency(income.amount)} {income.frequency === 'YEARLY' ? 'per year' : 'per month'}
                 </p>
+                {(income.start_date || income.end_date) && (
+                  <p className="text-xs text-gray-400">
+                    {income.start_date ? `From ${formatDate(income.start_date)}` : 'From start'}
+                    {income.end_date ? ` to ${formatDate(income.end_date)}` : ' · ongoing'}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -420,6 +436,31 @@ function RecurringIncomeSection({ incomes, onRefresh }: RecurringIncomeSectionPr
                   <option value="YEARLY">Yearly</option>
                 </select>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Effective From</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Effective To</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <p className="-mt-2 text-xs text-gray-400">
+                Optional. Set these so the charts know when this income started or changed.
+                Leave blank for income with no defined start/end. To record a raise, end-date the
+                old amount and add a new entry starting the next month.
+              </p>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Notes</label>
                 <textarea

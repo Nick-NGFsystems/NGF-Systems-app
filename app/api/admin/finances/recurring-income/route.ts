@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { name, amount, frequency, notes } = body
+    const { name, amount, frequency, startDate, endDate, notes } = body
 
     if (!name || !amount) {
       return NextResponse.json(
@@ -43,11 +43,28 @@ export async function POST(request: Request) {
       )
     }
 
+    // Effective dates are optional for income. A null start means "active from
+    // the beginning"; a null end means "ongoing".
+    const parsedStartDate = startDate ? new Date(startDate) : null
+    const parsedEndDate = endDate ? new Date(endDate) : null
+
+    if (parsedStartDate && !Number.isFinite(parsedStartDate.getTime())) {
+      return NextResponse.json({ success: false, error: 'Start date is invalid' }, { status: 400 })
+    }
+    if (parsedEndDate && !Number.isFinite(parsedEndDate.getTime())) {
+      return NextResponse.json({ success: false, error: 'End date is invalid' }, { status: 400 })
+    }
+    if (parsedStartDate && parsedEndDate && parsedEndDate < parsedStartDate) {
+      return NextResponse.json({ success: false, error: 'End date must be after start date' }, { status: 400 })
+    }
+
     const income = await db.recurringIncome.create({
       data: {
         name: name.trim(),
         amount: parseFloat(amount),
         frequency: frequency || 'MONTHLY',
+        start_date: parsedStartDate,
+        end_date: parsedEndDate,
         notes: notes?.trim() || null,
       },
     })

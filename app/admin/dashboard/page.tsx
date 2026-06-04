@@ -32,7 +32,16 @@ export default async function DashboardPage() {
   const reqClients = await db.client.findMany({ where: { id: { in: reqClientIds } }, select: { id: true, name: true, business: true } })
   const clientMap = Object.fromEntries(reqClients.map(c => [c.id, c]))
 
-  const monthlyRevenue = recurringIncomeResult.reduce((sum, item) => sum + (item.frequency === 'YEARLY' ? item.amount / 12 : item.amount), 0)
+  // Count recurring income active in the current month (matches the finances page).
+  // Null start = active from the beginning; null end = ongoing.
+  const revNow = new Date()
+  const revMonthStart = new Date(revNow.getFullYear(), revNow.getMonth(), 1)
+  const revMonthEnd = new Date(revNow.getFullYear(), revNow.getMonth() + 1, 0)
+  const monthlyRevenue = recurringIncomeResult.reduce((sum, item) => {
+    if (item.start_date && item.start_date > revMonthEnd) return sum
+    if (item.end_date && item.end_date < revMonthStart) return sum
+    return sum + (item.frequency === 'YEARLY' ? item.amount / 12 : item.amount)
+  }, 0)
   const firstName = user?.firstName ?? 'Nick'
 
   return (

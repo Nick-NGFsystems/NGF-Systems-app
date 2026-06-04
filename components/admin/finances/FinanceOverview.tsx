@@ -7,11 +7,11 @@ import { DonutChart, MonthlyBars, AllocationBar, CHART_COLORS, type Segment, typ
 import {
   formatCurrency,
   monthlyAmount,
-  isExpenseActiveInMonth,
+  isActiveInMonth,
   trailingMonths,
 } from './format'
 
-interface RecurringIncome { id: string; name: string; amount: number; frequency: string }
+interface RecurringIncome { id: string; name: string; amount: number; frequency: string; start_date: string | null; end_date: string | null }
 interface RecurringExpense { id: string; name: string; amount: number; frequency: string; category: string; start_date: string; end_date: string | null }
 interface OneTimeTransaction { id: string; name: string; amount: number; type: string; date: string }
 interface WorkMileage { id: string; date: string; miles: number; rate_per_mile: number }
@@ -64,16 +64,18 @@ export default function FinanceOverview({
   const currentYear = now.getFullYear()
   const currentMonth = now.getMonth()
 
-  const recurringMonthlyIncome = recurringIncome.reduce((s, i) => s + monthlyAmount(i.amount, i.frequency), 0)
-
   // ── Trailing-12-month income vs expense series ─────────────────────────────
   const series: MonthDatum[] = trailingMonths(12, now).map((m) => {
+    const recurringInc = recurringIncome
+      .filter((inc) => isActiveInMonth(inc.start_date, inc.end_date, m.year, m.monthIndex))
+      .reduce((s, inc) => s + monthlyAmount(inc.amount, inc.frequency), 0)
+
     const oneTimeIncome = oneTimeTransactions
       .filter((t) => t.type === 'INCOME' && new Date(t.date).getFullYear() === m.year && new Date(t.date).getMonth() === m.monthIndex)
       .reduce((s, t) => s + t.amount, 0)
 
     const recurringExp = recurringExpenses
-      .filter((e) => isExpenseActiveInMonth(e.start_date, e.end_date, m.year, m.monthIndex))
+      .filter((e) => isActiveInMonth(e.start_date, e.end_date, m.year, m.monthIndex))
       .reduce((s, e) => s + monthlyAmount(e.amount, e.frequency), 0)
 
     const mileageExp = workMileage
@@ -86,7 +88,7 @@ export default function FinanceOverview({
 
     return {
       label: m.label,
-      income: recurringMonthlyIncome + oneTimeIncome,
+      income: recurringInc + oneTimeIncome,
       expense: recurringExp + mileageExp + oneTimeExp,
     }
   })
@@ -102,7 +104,7 @@ export default function FinanceOverview({
   // ── This month's expense composition (donut) ───────────────────────────────
   const catTotals = new Map<string, number>()
   recurringExpenses
-    .filter((e) => isExpenseActiveInMonth(e.start_date, e.end_date, currentYear, currentMonth))
+    .filter((e) => isActiveInMonth(e.start_date, e.end_date, currentYear, currentMonth))
     .forEach((e) => {
       const label = e.category || 'OTHER'
       catTotals.set(label, (catTotals.get(label) ?? 0) + monthlyAmount(e.amount, e.frequency))

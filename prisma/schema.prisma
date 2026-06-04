@@ -93,13 +93,15 @@ model TimeEntry {
 }
 
 model RecurringIncome {
-  id        String   @id @default(cuid())
-  name      String
-  amount    Float
-  frequency String   @default("MONTHLY")
-  notes     String?
-  created   DateTime @default(now())
-  updated   DateTime @updatedAt
+  id         String   @id @default(cuid())
+  name       String
+  amount     Float
+  frequency  String   @default("MONTHLY")
+  start_date DateTime?
+  end_date   DateTime?
+  notes      String?
+  created    DateTime @default(now())
+  updated    DateTime @updatedAt
 
   @@map("recurring_income")
 }
