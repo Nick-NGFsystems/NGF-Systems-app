@@ -23,7 +23,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     const { id } = await context.params
     const body = await request.json()
-    const { name, amount, frequency, notes } = body
+    const { name, amount, frequency, startDate, endDate, notes } = body
 
     const income = await db.recurringIncome.update({
       where: { id },
@@ -31,6 +31,8 @@ export async function PATCH(request: Request, context: RouteContext) {
         ...(name && { name: name.trim() }),
         ...(amount !== undefined && { amount: parseFloat(amount) }),
         ...(frequency && { frequency }),
+        ...(startDate !== undefined && { start_date: startDate ? new Date(startDate) : null }),
+        ...(endDate !== undefined && { end_date: endDate ? new Date(endDate) : null }),
         ...(notes !== undefined && { notes: notes?.trim() || null }),
       },
     })

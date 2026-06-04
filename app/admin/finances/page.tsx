@@ -31,13 +31,16 @@ export default async function FinancesPage() {
     db.workMileage.findMany({ orderBy: { date: 'desc' } }),
   ])
 
-  // Calculate monthly income
-  const monthlyIncome = recurringIncome.reduce((sum, item) => {
-    return sum + (item.frequency === 'YEARLY' ? item.amount / 12 : item.amount)
-  }, 0)
-
   const now = new Date()
   const { monthStart, monthEnd } = getMonthBounds(now)
+
+  // Calculate monthly income for income streams active in the current month.
+  // A null start_date means "active from the beginning"; a null end_date "ongoing".
+  const monthlyIncome = recurringIncome.reduce((sum, item) => {
+    if (item.start_date && item.start_date > monthEnd) return sum
+    if (item.end_date && item.end_date < monthStart) return sum
+    return sum + (item.frequency === 'YEARLY' ? item.amount / 12 : item.amount)
+  }, 0)
 
   // Calculate monthly expenses for active recurring expenses in the current month.
   const monthlyExpenses = recurringExpenses.reduce((sum, item) => {
@@ -83,6 +86,8 @@ export default async function FinancesPage() {
   // Serialize dates
   const serializedIncome = recurringIncome.map((item) => ({
     ...item,
+    start_date: item.start_date ? item.start_date.toISOString() : null,
+    end_date: item.end_date ? item.end_date.toISOString() : null,
     created: item.created.toISOString(),
     updated: item.updated.toISOString(),
   }))
