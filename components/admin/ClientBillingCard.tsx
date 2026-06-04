@@ -83,6 +83,7 @@ export default function ClientBillingCard({ clientId }: { clientId: string }) {
 
   const [subOpen, setSubOpen]   = useState(false)
   const [invOpen, setInvOpen]   = useState(false)
+  const [autoOpen, setAutoOpen] = useState(false)
 
   const load = useCallback(async () => {
     setError(null)
@@ -162,6 +163,13 @@ export default function ClientBillingCard({ clientId }: { clientId: string }) {
           className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
         >
           + Create subscription
+        </button>
+        <button
+          type="button"
+          onClick={() => setAutoOpen(true)}
+          className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          + Auto-pay (card on file)
         </button>
         <button
           type="button"
@@ -312,6 +320,12 @@ export default function ClientBillingCard({ clientId }: { clientId: string }) {
           clientId={clientId}
           onClose={() => setInvOpen(false)}
           onDone={() => { setInvOpen(false); load() }}
+        />
+      ) : null}
+      {autoOpen ? (
+        <CreateAutopayModal
+          clientId={clientId}
+          onClose={() => { setAutoOpen(false); load() }}
         />
       ) : null}
     </section>
@@ -537,6 +551,165 @@ function CreateInvoiceModal({
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function CreateAutopayModal({
+  clientId: _clientId,
+  onClose,
+}: { clientId: string; onClose: () => void }) {
+  const [amount, setAmount]           = useState<string>('')
+  const [interval, setInterval_]      = useState<'month' | 'year'>('month')
+  const [description, setDescription] = useState<string>('')
+  const [submitting, setSubmitting]   = useState(false)
+  const [error, setError]             = useState<string | null>(null)
+  const [url, setUrl]                 = useState<string | null>(null)
+  const [copied, setCopied]           = useState(false)
+
+  async function submit() {
+    setError(null)
+    const cents = Math.round(parseFloat(amount) * 100)
+    if (!Number.isFinite(cents) || cents < 50) {
+      setError('Enter an amount of at least $0.50.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/admin/clients/${_clientId}/billing`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          action:       'create_autopay_checkout',
+          amount_cents: cents,
+          interval,
+          description:  description || undefined,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok || !json.success) {
+        setError(json.error ?? 'Failed to create auto-pay link')
+        setSubmitting(false)
+        return
+      }
+      setUrl(json.data.url as string)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error')
+      setSubmitting(false)
+    }
+  }
+
+  async function copyLink() {
+    if (!url) return
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      /* clipboard unavailable — admin can still select the link text */
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold text-slate-900">Set up auto-pay</h3>
+        <p className="mt-1 text-xs text-gray-500">
+          Generates a secure Stripe link. The client enters their card once; Stripe then charges it
+          automatically each cycle. No card details touch this app.
+        </p>
+
+        {url ? (
+          <div className="mt-5 space-y-4">
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+              <p className="text-sm font-medium text-emerald-900">Auto-pay link ready</p>
+              <p className="mt-1 break-all text-xs text-emerald-800">{url}</p>
+            </div>
+            <p className="text-xs text-gray-500">
+              Send this to the client. After they complete checkout, the subscription appears here
+              automatically (via Stripe webhook) and auto-charges every cycle.
+            </p>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={copyLink}
+                className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                {copied ? 'Copied ✓' : 'Copy link'}
+              </button>
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-center text-sm font-medium text-white hover:bg-blue-700"
+              >
+                Open ↗
+              </a>
+            </div>
+            <button type="button" onClick={onClose} className="w-full rounded-lg px-3 py-2 text-sm text-gray-500 hover:text-gray-800">
+              Done
+            </button>
+          </div>
+        ) : (
+          <div className="mt-5 space-y-4">
+            <label className="block">
+              <span className="text-sm font-medium text-slate-900">Amount</span>
+              <div className="mt-1 flex items-center gap-2">
+                <span className="text-gray-500">$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.50"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="125.00"
+                  className="w-32 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+                />
+                <select
+                  value={interval}
+                  onChange={(e) => setInterval_(e.target.value as 'month' | 'year')}
+                  className="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+                >
+                  <option value="month">per month</option>
+                  <option value="year">per year</option>
+                </select>
+              </div>
+            </label>
+
+            <label className="block">
+              <span className="text-sm font-medium text-slate-900">Description (optional)</span>
+              <input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Monthly Hosting"
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+              />
+            </label>
+
+            {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={submitting}
+                className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submit}
+                disabled={submitting}
+                className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                {submitting ? 'Generating…' : 'Generate link'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

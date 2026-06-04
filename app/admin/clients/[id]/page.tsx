@@ -6,6 +6,7 @@ import ClientStatusSelect from '@/components/admin/ClientStatusSelect'
 import EditClientModal from '@/components/admin/EditClientModal'
 import ConfigToggles from '@/components/admin/ConfigToggles'
 import ClientPortalOverview from '@/components/admin/ClientPortalOverview'
+import ClientBillingCard from '@/components/admin/ClientBillingCard'
 
 export const dynamic = 'force-dynamic'
 
@@ -141,6 +142,8 @@ export default async function ClientDetailPage({ params }: ClientDetailPageProps
           initialGa4PropertyId={clientConfig.ga4_property_id}
         />
       </div>
+
+      <ClientBillingCard clientId={client.id} />
     </section>
   )
 }

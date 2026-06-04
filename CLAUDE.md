@@ -702,6 +702,26 @@ Every portal route MUST satisfy all three:
 
 ---
 
+## Billing (Stripe) — load-bearing, verify before changing
+
+Recurring billing lives in `lib/stripe.ts`, `app/api/admin/clients/[id]/billing/route.ts`, `app/api/webhooks/stripe/route.ts`, and the `ClientBillingCard` component (mounted on `/admin/clients/[id]`). It moves real money — **always test billing changes in Stripe TEST mode before deploying** (test card `4242 4242 4242 4242`, and a Stripe test clock to fast-forward a renewal).
+
+**Two ways to bill a client:**
+- **Invoice (manual pay):** `create_subscription` action → `createSubscriptionForClient()` uses `collection_method: 'send_invoice'`. Stripe emails an invoice each cycle; the client clicks the hosted link to pay. No card on file.
+- **Auto-pay (card on file):** `create_autopay_checkout` action → `createAutopayCheckout()` returns a Stripe **Checkout link in `subscription` mode**. The client enters their card once; Stripe creates a `charge_automatically` subscription and auto-charges every cycle. PCI-safe — no card data touches this app.
+
+**Do NOT break these invariants:**
+- **API-version field helpers** in `lib/stripe.ts`/the webhook exist because of pinned `apiVersion: '2026-02-25.clover'`: `subscriptionPeriod(sub)` reads period dates from the subscription **or its first item** (period moved to items), and `extractInvoiceSubscriptionId(invoice)` checks `invoice.subscription` → `invoice.parent.subscription_details` → `invoice.lines`. **Don't "simplify" these to `sub.current_period_end` / `invoice.subscription`** — those are null on this API version and you'll silently store nulls / fail to link invoices.
+- **Auto-pay link MUST set `subscription_data.metadata.client_id`** in `createAutopayCheckout` — that's how `handleSubscriptionCreated` links the new subscription to the client. Drop it and subscriptions arrive unlinked.
+- **Webhook idempotency** (`processedStripeEvent` dedup) and **signature verification** must stay. All DB writes are idempotent upserts — keep them that way so Stripe retries are safe.
+- The webhook deliberately does **not** touch `ClientConfig` feature toggles.
+
+**Known minor gaps (don't depend on these without verifying):**
+- `customer.subscription.deleted` writes status `'CANCELLED'`; status-sync writes `'CANCELED'` (Stripe's spelling). The UI (`statusPill`, active-sub filter) tolerates both, so it's cosmetic — but match Stripe's `'CANCELED'` if you ever normalize.
+- On this API version `invoice.payment_intent` is usually null, so invoice-based `Payment` rows save a null `stripe_payment_intent`; the refund/dispute handlers match by that field, so a refund on a subscription invoice may not flip the row to REFUNDED. Fine for now; revisit if refund tracking matters.
+
+---
+
 ## Clerk Setup
 
 ### Session Token Customization (required)

@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import {
   stripe,
   createSubscriptionForClient,
+  createAutopayCheckout,
   createOneTimeInvoice,
   cancelSubscriptionAtPeriodEnd,
   resumeSubscription,
@@ -140,6 +141,20 @@ export async function POST(
           clientId: id, amountCents, interval, description, presetKey,
         })
         return NextResponse.json({ success: true, data: { subscription_id: sub.id, status: sub.status } })
+      }
+
+      case 'create_autopay_checkout': {
+        const amountCents = Number(body.amount_cents)
+        const interval    = body.interval === 'year' ? 'year' : 'month'
+        const description = typeof body.description === 'string' ? body.description : undefined
+        const presetKey   = typeof body.preset_key === 'string' ? body.preset_key : undefined
+
+        if (!Number.isFinite(amountCents) || amountCents < 50) {
+          return NextResponse.json({ success: false, error: 'amount_cents must be at least 50' }, { status: 400 })
+        }
+
+        const { url } = await createAutopayCheckout({ clientId: id, amountCents, interval, description, presetKey })
+        return NextResponse.json({ success: true, data: { url } })
       }
 
       case 'create_invoice': {

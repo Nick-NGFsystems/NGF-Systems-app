@@ -164,6 +164,70 @@ export async function createSubscriptionForClient(input: CreateSubscriptionInput
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Auto-pay subscription via Stripe Checkout
+//
+// Unlike createSubscriptionForClient (send_invoice), this returns a hosted
+// Stripe Checkout link in `subscription` mode. The client enters their card on
+// Stripe's page; Stripe then creates a `charge_automatically` subscription and
+// auto-charges every cycle — no manual invoice payment. PCI-safe: no card data
+// ever touches this app.
+//
+// IMPORTANT: subscription_data.metadata.client_id MUST be set so the
+// customer.subscription.created webhook can link the new sub to the client.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface CreateAutopayCheckoutInput {
+  clientId:     string
+  amountCents:  number
+  interval:     'month' | 'year'
+  description?: string
+  presetKey?:   string
+}
+
+export async function createAutopayCheckout(input: CreateAutopayCheckoutInput): Promise<{ url: string }> {
+  const { clientId, amountCents, interval, description, presetKey } = input
+
+  if (amountCents < 50) {
+    throw new Error('Minimum subscription amount is $0.50 (50 cents)')
+  }
+
+  const client = await db.client.findUnique({ where: { id: clientId } })
+  if (!client) throw new Error('Client not found')
+
+  const customerId = await getOrCreateStripeCustomer(client)
+
+  const price = await stripe.prices.create({
+    currency:    'usd',
+    product:     STRIPE_PRODUCTS.managed,
+    unit_amount: amountCents,
+    recurring:   { interval },
+    nickname:    description ?? `${client.business ?? client.name ?? 'Client'} — $${(amountCents / 100).toFixed(2)}/${interval} (auto-pay)`,
+    metadata:    { client_id: clientId },
+  })
+
+  const base = appUrl()
+  const session = await stripe.checkout.sessions.create({
+    mode:       'subscription',
+    customer:   customerId,
+    line_items: [{ price: price.id, quantity: 1 }],
+    subscription_data: {
+      description,
+      metadata: {
+        client_id: clientId,
+        plan_key:  presetKey ?? 'custom',
+        plan_name: description ?? 'Managed Website',
+      },
+    },
+    metadata:    { client_id: clientId },
+    success_url: `${base}/portal/portal-invoices?autopay=success`,
+    cancel_url:  `${base}/portal/portal-invoices?autopay=cancel`,
+  })
+
+  if (!session.url) throw new Error('Stripe did not return a Checkout URL')
+  return { url: session.url }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // One-time invoice creation
 //
 // For setup fees, add-on work, ad-hoc charges. Creates an InvoiceItem + Invoice
