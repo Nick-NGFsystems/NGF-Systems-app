@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { useConfirm } from '@/hooks/useConfirm'
+import FinanceOverview from './finances/FinanceOverview'
 
 interface RecurringIncome {
   id: string
@@ -132,7 +133,20 @@ export default function FinancesManager({
   const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm()
 
   const totalAllocationPercentage = budgetAllocations.reduce((sum, alloc) => sum + alloc.percentage, 0)
-  const recurringMonthlyExpenses = monthlyExpenses - monthlyMileageTotal
+
+  const [tab, setTab] = useState<
+    'overview' | 'income' | 'expenses' | 'onetime' | 'mileage' | 'reports' | 'budget'
+  >('overview')
+
+  const tabs = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'income', label: 'Income' },
+    { key: 'expenses', label: 'Expenses' },
+    { key: 'onetime', label: 'One-Time' },
+    { key: 'mileage', label: 'Mileage' },
+    { key: 'reports', label: 'Reports' },
+    { key: 'budget', label: 'Budget' },
+  ] as const
 
   return (
     <section className="space-y-8">
@@ -146,103 +160,83 @@ export default function FinancesManager({
 
       <header>
         <h1 className="font-sans text-3xl font-semibold tracking-tight text-slate-900">Finances</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Track all business income, expenses, mileage, and budget in one place.
+        </p>
       </header>
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
       )}
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <article className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <p className="text-sm text-gray-500">Monthly Income</p>
-          <p className="mt-3 font-sans text-3xl font-semibold tracking-tight text-slate-900">
-            {formatCurrency(monthlyIncome)}
-          </p>
-        </article>
+      {/* Tab navigation */}
+      <nav className="flex flex-wrap gap-1 border-b border-gray-200">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className={`-mb-px rounded-t-lg border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+              tab === t.key
+                ? 'border-blue-600 text-blue-700'
+                : 'border-transparent text-gray-500 hover:text-gray-800'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
 
-        <article className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <p className="text-sm text-gray-500">Expenses</p>
-          <div className="mt-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-wide text-gray-500">Recurring</span>
-              <span className="font-sans text-xl font-semibold tracking-tight text-slate-900">
-                {formatCurrency(recurringMonthlyExpenses)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-wide text-gray-500">Mileage (Month)</span>
-              <span className="font-sans text-xl font-semibold tracking-tight text-slate-900">
-                {formatCurrency(monthlyMileageTotal)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-wide text-gray-500">Monthly</span>
-              <span className="font-sans text-xl font-semibold tracking-tight text-slate-900">
-                {formatCurrency(monthlyExpenses)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-wide text-gray-500">Yearly</span>
-              <span className="font-sans text-xl font-semibold tracking-tight text-slate-900">
-                {formatCurrency(monthlyExpenses * 12)}
-              </span>
-            </div>
-          </div>
-        </article>
+      {/* Tab content */}
+      {tab === 'overview' && (
+        <FinanceOverview
+          recurringIncome={recurringIncome}
+          recurringExpenses={recurringExpenses}
+          oneTimeTransactions={oneTimeTransactions}
+          workMileage={workMileage}
+          budgetAllocations={budgetAllocations}
+          monthlyIncome={monthlyIncome}
+          monthlyExpenses={monthlyExpenses}
+          netIncomeMonthly={netIncomeMonthly}
+          netIncomeYearly={netIncomeYearly}
+          oneTimeTotal={oneTimeTotal}
+          monthlyMileageTotal={monthlyMileageTotal}
+          yearlyMileageTotal={yearlyMileageTotal}
+        />
+      )}
 
-        <article className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <p className="text-sm text-gray-500">Net Income</p>
-          <div className="mt-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-wide text-gray-500">Monthly</span>
-              <span className={`font-sans text-xl font-semibold tracking-tight ${netIncomeMonthly >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {formatCurrency(netIncomeMonthly)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-wide text-gray-500">Yearly</span>
-              <span className={`font-sans text-xl font-semibold tracking-tight ${netIncomeYearly >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {formatCurrency(netIncomeYearly)}
-              </span>
-            </div>
-          </div>
-        </article>
+      {tab === 'income' && (
+        <RecurringIncomeSection incomes={recurringIncome} onRefresh={() => router.refresh()} />
+      )}
 
-        <article className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <p className="text-sm text-gray-500">One-Time Total</p>
-          <p className="mt-3 font-sans text-3xl font-semibold tracking-tight text-slate-900">
-            {formatCurrency(oneTimeTotal)}
-          </p>
-        </article>
-      </div>
+      {tab === 'expenses' && (
+        <RecurringExpensesSection expenses={recurringExpenses} onRefresh={() => router.refresh()} />
+      )}
 
-      {/* Recurring Income Section */}
-      <RecurringIncomeSection incomes={recurringIncome} onRefresh={() => router.refresh()} />
+      {tab === 'onetime' && (
+        <OneTimeTransactionsSection transactions={oneTimeTransactions} onRefresh={() => router.refresh()} />
+      )}
 
-      {/* Recurring Expenses Section */}
-      <RecurringExpensesSection expenses={recurringExpenses} onRefresh={() => router.refresh()} />
+      {tab === 'mileage' && (
+        <WorkMileageSection
+          mileageEntries={workMileage}
+          monthlyMileageTotal={monthlyMileageTotal}
+          yearlyMileageTotal={yearlyMileageTotal}
+          onRefresh={() => router.refresh()}
+        />
+      )}
 
-      {/* One-Time Transactions Section */}
-      <OneTimeTransactionsSection transactions={oneTimeTransactions} onRefresh={() => router.refresh()} />
+      {tab === 'reports' && (
+        <ExpenseReportsSection
+          recurringExpenses={recurringExpenses}
+          oneTimeTransactions={oneTimeTransactions}
+          mileageEntries={workMileage}
+        />
+      )}
 
-      {/* Work Mileage Section */}
-      <WorkMileageSection
-        mileageEntries={workMileage}
-        monthlyMileageTotal={monthlyMileageTotal}
-        yearlyMileageTotal={yearlyMileageTotal}
-        onRefresh={() => router.refresh()}
-      />
-
-      {/* Expense Reporting Section */}
-      <ExpenseReportsSection
-        recurringExpenses={recurringExpenses}
-        oneTimeTransactions={oneTimeTransactions}
-        mileageEntries={workMileage}
-      />
-
-      {/* Budget Allocations Section */}
-      <BudgetAllocationsSection allocations={budgetAllocations} totalPercentage={totalAllocationPercentage} onRefresh={() => router.refresh()} />
+      {tab === 'budget' && (
+        <BudgetAllocationsSection allocations={budgetAllocations} totalPercentage={totalAllocationPercentage} onRefresh={() => router.refresh()} />
+      )}
     </section>
   )
 }
