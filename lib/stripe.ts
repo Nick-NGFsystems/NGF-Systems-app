@@ -196,20 +196,22 @@ export async function createAutopayCheckout(input: CreateAutopayCheckoutInput): 
 
   const customerId = await getOrCreateStripeCustomer(client)
 
-  const price = await stripe.prices.create({
-    currency:    'usd',
-    product:     STRIPE_PRODUCTS.managed,
-    unit_amount: amountCents,
-    recurring:   { interval },
-    nickname:    description ?? `${client.business ?? client.name ?? 'Client'} — $${(amountCents / 100).toFixed(2)}/${interval} (auto-pay)`,
-    metadata:    { client_id: clientId },
-  })
-
   const base = appUrl()
   const session = await stripe.checkout.sessions.create({
     mode:       'subscription',
     customer:   customerId,
-    line_items: [{ price: price.id, quantity: 1 }],
+    // Inline price_data — Checkout creates the product + recurring price on the
+    // fly, so there's no dependency on a pre-existing Stripe product. The only
+    // live-mode prerequisite is the webhook endpoint.
+    line_items: [{
+      quantity: 1,
+      price_data: {
+        currency:    'usd',
+        unit_amount: amountCents,
+        recurring:   { interval },
+        product_data: { name: description ?? 'Managed Website' },
+      },
+    }],
     subscription_data: {
       description,
       metadata: {
