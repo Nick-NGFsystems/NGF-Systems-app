@@ -2,6 +2,23 @@
 
 **This is the canonical foundation document for every NGF client website.** Fork/copy from `ngf-client-starter`, follow the rules below, and any site you build will plug into the NGF portal editor on day one.
 
+> **No client or project names appear in this file by design.** Standards are universal; concrete examples use neutral placeholders (e.g. `Acme Co`). Real per-project notes belong in that project's own `CLAUDE.md`, never here.
+
+## Contents
+
+- [Single source of truth](#single-source-of-truth) · [How to use this file](#how-to-use-this-file) · [How we work](#how-we-work--cowork-mode)
+- [Tech stack](#tech-stack)
+- [NGF Portal Editor Integration](#ngf-portal-editor-integration--the-foundation) — the foundation (required files, `lib/ngf.ts`, caching, bridge, annotation patterns, pitfalls)
+- [Setup checklist for a new site](#setup-checklist-for-a-new-ngf-client-website)
+- [Site lifecycle — launch, domain changes, recovery](#site-lifecycle--launch-domain-changes-and-recovery) — **read before changing any live site's domain**
+- [Local development](#local-development--never-deploy-to-test)
+- [SEO & analytics](#seo--analytics--required-on-every-ngf-client-site) · [Google Business Profile](#google-business-profile--per-client-local-seo-setup)
+- [Database](#database--only-if-the-site-needs-its-own-data) · [Auth](#auth--only-if-the-site-needs-it) · [Security baseline](#security-baseline--required-on-every-ngf-site)
+- [Design system](#design-system--universal-rules--per-client-aesthetic) · [Universal interaction patterns](#universal-interaction-patterns)
+- [Absolute rules](#absolute-rules--never-break) · [Known issues / quick reference](#known-issues--quick-reference)
+- [Adding or integrating a feature — the playbook](#adding-or-integrating-a-feature--the-playbook) — when a client asks for something new (blog / shop / booking / form / map / login / …)
+- [Roadmap (planned standards)](#roadmap--planned-standards-not-yet-built) · [Reference implementation](#reference-implementation) · [Workflow](#workflow--how-we-build-a-feature) · [Deployment checklist](#deployment-checklist-vercel)
+
 ## Single source of truth
 
 **This file lives in exactly one place:**
@@ -17,16 +34,16 @@ https://raw.githubusercontent.com/Nick-NGFsystems/NGF-Systems-app/main/NGF-STAND
 
 **No client repo carries a local copy.** Every AI session fetches the URL on startup (per the user's global `~/.claude/CLAUDE.md`). Edits happen here only — there's nothing to sync, nothing to drift. If the canonical URL is ever unreachable, that's a fail-loud condition, not a fallback opportunity.
 
-The companion reference files — `NgfEditBridge.tsx` and `lib/ngf.ts` — also have canonical homes (NorthCoveBuilders-Mockup is the reference implementation). When client sites need to update them, the AI fetches the canonical version from that repo via raw URL.
+The companion integration files — `NgfEditBridge.tsx` and `lib/ngf.ts` — have a single canonical home in the **`ngf-client-starter`** repo. Always copy the current version from there; never hand-author your own or copy from an arbitrary existing site (they drift). See "Reference implementation" near the end of this file. *(Planned: ship these as a versioned `@ngf/editor-bridge` package so sites install rather than copy — see Roadmap.)*
 
 ## How to use this file
 
 At the start of any new NGF client-website session, paste:
-> "I'm starting a new NGFsystems client website. Read NGF-STANDARDS.md and follow it exactly. The reference implementations are NorthCoveBuilders-Mockup and WrenchTime-Cycles."
+> "I'm starting a new NGFsystems client website. Read NGF-STANDARDS.md and follow it exactly. The canonical integration files live in the `ngf-client-starter` repo."
 
 Two scopes are covered here:
 
-1. **Universal client-site standards** — apply to every NGF client website (NorthCove, WrenchTime, future sites). Most of this file.
+1. **Universal client-site standards** — apply to every NGF client website. Most of this file.
 2. **NGF main-app standards** — apply only to `NGF-Systems-app` itself (the admin portal at `app.ngfsystems.com`). Marked clearly. Most client sites can ignore them.
 
 For the main app's internal architecture (admin/portal routing, schema scraping pipeline, push API, version history, security invariants) read [`NGF-Systems-app/CLAUDE.md`](https://github.com/Nick-NGFsystems/NGF-Systems-app/blob/main/CLAUDE.md).
@@ -138,9 +155,9 @@ export async function getNgfContent(): Promise<NgfSiteContent> {
       .replace(/\/$/, '')
     const url = `${process.env.NGF_APP_URL || 'https://app.ngfsystems.com'}/api/public/content?domain=${encodeURIComponent(domain)}`
     // Cache the content fetch and revalidate on a 60s window so we don't hit
-    // Neon on every request. Tagged 'ngf-content' so the NGF push handler can
-    // bust the cache instantly via /api/revalidate when the client publishes.
-    // NEVER use cache: 'no-store' here — see "Content caching & revalidation".
+    // Neon on every request. On publish, the NGF push handler pings this site's
+    // /api/revalidate, which calls revalidatePath('/', 'layout') to bust the
+    // cache instantly. NEVER use cache: 'no-store' — see "Content caching & revalidation".
     const res = await fetch(url, { next: { revalidate: 60, tags: ['ngf-content'] } })
     if (!res.ok) return {}
     const data = (await res.json()) as { content?: NgfSiteContent }
@@ -200,16 +217,20 @@ Pages serve from cache and refresh at most once per 60 seconds. Neon sees roughl
 ```typescript
 // app/api/revalidate/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { revalidateTag } from 'next/cache'
+import { revalidatePath } from 'next/cache'
 
 export async function GET(req: NextRequest) {
   if (req.nextUrl.searchParams.get('secret') !== process.env.WEBSITE_REVALIDATION_SECRET) {
     return NextResponse.json({ ok: false }, { status: 401 })
   }
-  revalidateTag('ngf-content')
+  // Version-agnostic: revalidatePath('/', 'layout') busts every page under the
+  // root layout, so all pages calling getNgfContent() rebuild on next request.
+  revalidatePath('/', 'layout')
   return NextResponse.json({ ok: true, revalidated: true })
 }
 ```
+
+> **Why `revalidatePath('/', 'layout')` and not `revalidateTag`?** The tagged fetch in `lib/ngf.ts` still tags content `'ngf-content'`, but `revalidateTag`'s signature has shifted across Next versions (newer Next expects a second argument), so a bare `revalidateTag('ngf-content')` can silently no-op or throw depending on the version a site is on. `revalidatePath('/', 'layout')` is stable across Next 14/15/16 and busts exactly the pages that read NGF content. Use it as the default.
 
 **Shared secret** — set `WEBSITE_REVALIDATION_SECRET` on the client site's Vercel project to the **same value** as `WEBSITE_REVALIDATION_SECRET` on the NGF main app. The NGF push handler (`app/api/portal/website/push/route.ts`) reads its own copy and calls `https://<site_url>/api/revalidate?secret=<secret>` on every publish. Mismatched secrets → the endpoint 401s and the site falls back to the 60s window (still correct, just not instant).
 
@@ -217,7 +238,7 @@ export async function GET(req: NextRequest) {
 
 | Scenario | What happens |
 |---|---|
-| Client publishes via portal | Push handler pings `/api/revalidate` → `revalidateTag` → next request rebuilds from fresh content. Sub-second. |
+| Client publishes via portal | Push handler pings `/api/revalidate` → `revalidatePath('/', 'layout')` → next request rebuilds from fresh content. Sub-second. |
 | `WEBSITE_REVALIDATION_SECRET` unset or mismatched | No ping (or 401). Content still refreshes within 60s via ISR. |
 | Normal visitor traffic | Served from the ISR cache. Neon hit at most once per 60s per page. |
 
@@ -225,13 +246,14 @@ This is the single highest-leverage change for Neon cost: a busy client site dro
 
 **Migrating an existing site off `cache: 'no-store'`:** update its `lib/ngf.ts` fetch to the tagged/revalidating form above, add `app/api/revalidate/route.ts`, set `WEBSITE_REVALIDATION_SECRET` in Vercel, redeploy. No portal-side change needed — the push handler already pings every site that has a `site_url` set.
 
-### `components/NgfEditBridge.tsx` — copy verbatim from a current reference
+### `components/NgfEditBridge.tsx` — copy verbatim from the canonical starter
 
-The bridge is a moving target — its postMessage contract changes when the editor adds new features (image fields, repeatable group reorder, etc.). **Always copy the latest from a known-current reference implementation:**
-- [`NorthCoveBuilders-Mockup/components/NgfEditBridge.tsx`](https://github.com/Nick-NGFsystems/NorthCoveBuilders-Mockup/blob/main/components/NgfEditBridge.tsx)
-- [`WrenchTime-Cycles/components/NgfEditBridge.tsx`](https://github.com/Nick-NGFsystems/WrenchTime-Cycles/blob/main/components/NgfEditBridge.tsx)
+The bridge is a moving target — its postMessage contract changes when the editor adds new features (image fields, repeatable group reorder, etc.). **Always copy the latest from the single canonical source:**
+- [`ngf-client-starter/components/NgfEditBridge.tsx`](https://github.com/Nick-NGFsystems/ngf-client-starter)
 
-Both stay in sync after every editor change. **Do not write a new bridge from scratch and do not modify the bridge in a single client repo without propagating to all of them.** The bridge contract is documented in the NGF main app CLAUDE.md.
+**Do not write a new bridge from scratch, and do not copy it from an arbitrary existing client site** — copies drift, and a stale bridge silently breaks edit-mode behaviors. When the editor's contract changes, the starter's bridge is the one place that gets updated; every site then re-copies from it. The bridge contract is documented in the NGF main app `CLAUDE.md`. *(Planned: distribute the bridge as a versioned `@ngf/editor-bridge` package so sites pin a version instead of copying — see Roadmap.)*
+
+> **⚠️ Interim (until the starter is refreshed):** `ngf-client-starter` is currently behind the live editor contract (its bridge predates the revert-UX changes). Until it's brought current, copy `NgfEditBridge.tsx` + `lib/ngf.ts` from the **most recently-shipped production site** instead, then verify edit-mode (click-to-edit, revert, add/remove/reorder) works in the portal. Refreshing the starter is a tracked task — once done, this note goes away and the starter is again the only source.
 
 ### `app/layout.tsx` — required pattern
 
@@ -362,7 +384,7 @@ In edit mode, the bridge automatically renders overlay controls on every annotat
 
 All three controls reposition on scroll/resize via requestAnimationFrame so they stay glued to their images. Removed automatically when edit mode is disabled or when a card containing the image is removed. Together they solve the "managing 10-30 photos in one place is painful" problem from a client's perspective — they can replace, remove, or reorder every photo directly on the live preview without scrolling the sidebar.
 
-Sites get the new behavior automatically when their bridge is brought up to the canonical version (currently ~40 KB, lives at `NorthCoveBuilders-Mockup/components/NgfEditBridge.tsx`).
+Sites get the new behavior automatically when their bridge is brought up to the canonical version (currently ~40 KB, lives at `ngf-client-starter/components/NgfEditBridge.tsx`).
 
 **Server-side image optimization (automatic):**
 
@@ -471,7 +493,8 @@ Put `data-ngf-group` on the container, declare each item's sub-fields in `data-n
 | `textarea` | resizable `<textarea>` (auto-grow) | `el.textContent` |
 | `color` | color picker + hex text | `el.textContent` |
 | `image` | URL field + Upload-from-computer + preview | `el.setAttribute('src', …)` |
-| `toggle` | true/false | `el.textContent` |
+
+*(There is no `toggle` field type — the editor renders only the four types above. Don't use `data-ngf-type="toggle"`; use `text`.)*
 
 #### Large galleries (10+ photos in one place)
 
@@ -592,8 +615,8 @@ Key points: 2 columns on mobile (large enough to manage), 3-4 columns on desktop
    **Right:**
    ```tsx
    // Top of page.tsx — single source of truth for repeated values
-   const businessName = content['brand.businessName'] || 'Square K Vacations'
-   const phone        = content['brand.phone']        || '(231) 555-0123'
+   const businessName = content['brand.businessName'] || 'Acme Co'
+   const phone        = content['brand.phone']        || '(555) 555-0123'
 
    // Header
    <h1 data-ngf-field="brand.businessName" data-ngf-label="Business Name" data-ngf-type="text" data-ngf-section="Brand">
@@ -609,9 +632,9 @@ Key points: 2 columns on mobile (large enough to manage), 3-4 columns on desktop
    **Wrong (creates two separate fields in the editor that don't sync):**
    ```tsx
    // Header
-   <h1 data-ngf-field="brand.businessName">{content['brand.businessName'] || 'Square K'}</h1>
+   <h1 data-ngf-field="brand.businessName">{content['brand.businessName'] || 'Acme Co'}</h1>
    // Footer — DIFFERENT path
-   <p data-ngf-field="footer.businessName">{content['footer.businessName'] || 'Square K'}</p>
+   <p data-ngf-field="footer.businessName">{content['footer.businessName'] || 'Acme Co'}</p>
    ```
 
    Three rules of thumb:
@@ -698,9 +721,9 @@ When the bridge caches the default value of an annotated element on mount, it wa
 
 ## Setup checklist for a new NGF client website
 
-1. [ ] **Fork** [`ngf-client-starter`](https://github.com/Nick-NGFsystems/ngf-client-starter) (or copy the integration files from `NorthCoveBuilders-Mockup` if the starter is stale — see Known Issues)
-2. [ ] **`lib/ngf.ts`** — copy verbatim from this doc
-3. [ ] **`components/NgfEditBridge.tsx`** — copy from a current reference (NorthCove or WrenchTime)
+1. [ ] **Fork** [`ngf-client-starter`](https://github.com/Nick-NGFsystems/ngf-client-starter) — the canonical source for all integration files
+2. [ ] **`lib/ngf.ts`** — copy verbatim from `ngf-client-starter` (also reproduced in this doc)
+3. [ ] **`components/NgfEditBridge.tsx`** — copy verbatim from `ngf-client-starter`
 4. [ ] **`app/layout.tsx`** — mount `<NgfEditBridge />`, call `getNgfContent()` once, thread `content` through any layout components
 5. [ ] **`next.config.{js,ts}`** — add the CSP `frame-ancestors` header
 6. [ ] **`app/api/revalidate/route.ts`** — copy from "Content caching & revalidation" so publishes bust the cache instantly
@@ -712,6 +735,44 @@ When the bridge caches the default value of an annotated element on mount, it wa
 12. [ ] **NGF admin** — set the client's `site_url` in `client_configs` to match `NEXT_PUBLIC_SITE_URL` exactly. The portal editor scrapes the schema on next load.
 13. [ ] **Verify in editor** — open the client portal, switch to Manage Sections, confirm all your annotated fields show up in the sidebar with real preview text
 14. [ ] **SEO launch gate** — run the full SEO checklist (SEO & analytics § 8). This is a **hard blocker** — do not flip a site live until every box is checked.
+
+---
+
+## Site lifecycle — launch, domain changes, and recovery
+
+A client's editor content lives in the NGF database (`website_content`, keyed to their client record). The **live site finds that content by matching two values that must always agree**:
+
+- `client_configs.site_url` (set in the NGF admin) — what the editor scrapes and what the content API matches on.
+- `NEXT_PUBLIC_SITE_URL` (the client site's Vercel env var) — what `getNgfContent()` sends to the content API.
+
+Both are normalized (protocol / `www.` / trailing slash stripped). **If they don't match, the content API returns `{}` and the live site silently renders only its hardcoded fallbacks** — the #1 cause of "the site looks wrong / my edits are gone after going live."
+
+### The mockup → production-domain promotion (the common flow)
+
+Building on a preview URL (e.g. `*.vercel.app`), letting the client edit, then attaching the real domain is the normal path. Do it safely:
+
+1. **While mocking:** set `client_configs.site_url` to the preview URL **and** `NEXT_PUBLIC_SITE_URL` to the same value. The client edits and publishes against the preview.
+2. **Going live — flip BOTH URLs together, then redeploy:**
+   - In NGF admin, change `client_configs.site_url` to the real domain.
+   - On the client's Vercel project, change `NEXT_PUBLIC_SITE_URL` to the same real domain → **redeploy** so the new value ships.
+   - Changing only one of the two is the classic break. They are a pair.
+3. **Content is preserved across the change.** A `site_url` change writes a *restore-point* snapshot into version history but **does not clear** the live content (this was changed after a production incident where setting the real domain wiped a client's saved edits). The client's edits carry straight over to the real domain.
+4. **Verify on the real domain** before telling the client it's live: load it and confirm their edited content renders (not the bare defaults).
+
+> **Best practice:** when feasible, point `site_url` / `NEXT_PUBLIC_SITE_URL` at the **final domain from the start** so there's no flip at all. If you must mock first, treat go-live as one atomic step: *both URLs change together, redeploy, verify.*
+
+### Recovery — "the live site shows defaults / the client's content is gone"
+
+Don't panic; content is almost never actually lost. Work the checklist in order:
+
+1. **Check the URL pair first.** Confirm `NEXT_PUBLIC_SITE_URL` (Vercel) matches `client_configs.site_url` (admin) exactly after normalization. A mismatch makes content *look* gone when it's fine — fix the env var, redeploy, and it returns. Confirm directly: `GET https://app.ngfsystems.com/api/public/content?domain=<the-real-domain>` should return the client's content, not `{}`.
+2. **If the content row really is empty,** restore from version history: open the client's editor → **View history** → find the most recent good snapshot (look for a `Restore point — domain changed…` entry or a dated publish) → **Revert**. That promotes the snapshot back to live content.
+3. **Re-publish** and re-verify on the live domain.
+4. **Never** start fixing by re-typing fields from scratch — restore first, or you'll overwrite a recoverable snapshot.
+
+### Deliberate wipes
+
+Clearing a client's content is a real, occasional need (a client row genuinely repurposed for a different site, real cross-contamination). It is an **explicit, separate action** — the **Reset Website Content** button on `/admin/portal/[clientId]` — never a silent side effect of changing settings. If you want a fresh start, use that button; otherwise every other operation preserves content.
 
 ---
 
@@ -986,15 +1047,15 @@ Pick the `@type` that matches the client. Common ones: `LocalBusiness` (generic)
 const serviceData = {
   '@context': 'https://schema.org',
   '@type': 'Service',
-  serviceType: 'Motorcycle Repair',
-  provider: { '@type': 'AutoRepair', name: 'WrenchTime Cycles' },
-  areaServed: { '@type': 'City', name: 'Grand Rapids' },
+  serviceType: 'Primary Service Category',
+  provider: { '@type': 'LocalBusiness', name: 'Acme Co' },
+  areaServed: { '@type': 'City', name: 'City Name' },
   hasOfferCatalog: {
     '@type': 'OfferCatalog',
     name: 'Services',
     itemListElement: [
-      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Oil Change' } },
-      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Tire Replacement' } },
+      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Service One' } },
+      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Service Two' } },
     ],
   },
 }
@@ -1065,7 +1126,7 @@ NEXT_PUBLIC_GA_ID=G-XXXXXXXXXX
 
 `NEXT_PUBLIC_SITE_URL` was already required for the editor integration. `NEXT_PUBLIC_GA_ID` is the GA4 measurement ID (starts with `G-`).
 
-### 7. Per-client GA4 setup — what Nick has to do once per site
+### 7. Per-client GA4 setup — what the NGF operator does once per site
 
 **Inside Google Analytics:**
 1. Admin → Create Property (one per client)
@@ -1259,7 +1320,19 @@ Stripe webhooks: `stripe.webhooks.constructEvent(rawBody, signature, secret)`. C
 
 `NEXT_PUBLIC_` prefix means the value ships in the JS bundle, accessible to anyone. Use this for genuinely-public values only (Clerk publishable key, GA4 measurement ID, site URL). Secrets — Stripe secret key, Resend API key, service-account JSON, database URLs — must NOT have the `NEXT_PUBLIC_` prefix.
 
-### 9. Periodic third-party audit
+### 9. Image-upload safety
+
+Any endpoint that accepts a user-uploaded image (the portal editor's `app/api/portal/upload`, and any client-site upload) MUST harden the upload path. These are lessons from a real audit of the upload pipeline:
+
+1. **Never serve user SVGs inline.** SVG can carry `<script>`, so a stored `.svg` served with `Content-Type: image/svg+xml` is a stored-XSS vector if anyone navigates to it. Either (a) sanitize SVGs on upload (svgo/DOMPurify), (b) store them with `Content-Disposition: attachment` so the browser downloads rather than renders, (c) rasterize them through the image pipeline (the NGF app converts SVG → WebP via Sharp), or (d) don't accept SVG at all. Pick one — don't pass raw SVG through.
+2. **Fail closed when image processing throws.** If Sharp (or your optimizer) errors on a file the client *claimed* is a raster (`image/jpeg`, `image/png`, …), return `400` — do **not** fall back to storing the original bytes. `file.type` is attacker-controllable; a non-image claiming `image/jpeg` must not get stored just because optimization failed. The "every raster is validated by Sharp" guarantee only holds if failure rejects.
+3. **Cap input dimensions (pixel-bomb defense).** Set an explicit `limitInputPixels` on Sharp and fail closed when exceeded, so a small file that decompresses to a huge bitmap can't exhaust memory.
+4. **Don't leak processor internals.** On error, return a generic message to the client and log the detail server-side — never echo raw `error.message` (Sharp/Blob internals) back in the response.
+5. **Scope storage paths to the resolved client.** Upload keys must be derived from the session-resolved `client.id` (e.g. `clients/${client.id}/…` with a random suffix), never from a `client_id` in the request. Same identity invariant as everywhere else.
+
+The NGF app's `app/api/portal/upload` is the reference implementation of all five.
+
+### 10. Periodic third-party audit
 
 Run a security audit (manual or AI-driven) on each site at least once per major feature release. Confirm: CSP is intact, no secrets in bundles, all POSTs validate input, no admin routes are reachable as a client.
 
@@ -1267,11 +1340,11 @@ Run a security audit (manual or AI-driven) on each site at least once per major 
 
 ## Design system — universal rules + per-client aesthetic
 
-Each client site has its own visual identity — colors, typography, density, theme — driven by the brand the client already has. **Do NOT default every new site to a particular look.** Before designing anything, ask the user what direction this client wants, or look at existing client materials (logo, existing site, brand guide) for cues. Examples in our portfolio:
-- **NorthCove Builders** — light theme, deep navy brand color (`#0f2f57`), serif headings, soft shadows on white cards
-- **WrenchTime Cycles** — bright cyan + orange accents, dark slate panels, technical/industrial typography
+Each client site has its own visual identity — colors, typography, density, theme — driven by the brand the client already has. **Do NOT default every new site to a particular look.** Before designing anything, ask the user what direction this client wants, or look at existing client materials (logo, existing site, brand guide) for cues. Two illustrative archetypes (deliberately opposite, to show the range):
+- **A builder / professional-services site** — light theme, a single deep brand color, serif headings, soft shadows on white cards
+- **A trade / industrial site** — bright accent pair, dark slate panels, technical/condensed typography
 
-Both follow the universal rules below. Neither is "the NGF look."
+Both follow the universal rules below. Neither is "the NGF look" — there is no NGF house style.
 
 ### Universal rules — apply to every client site regardless of aesthetic
 
@@ -1435,9 +1508,10 @@ NGF main app additionally:
 | Stored value renders as empty instead of fallback | You used `??` instead of `||`. Empty strings only fall through with `||` |
 | Editor preview iframe blocked by browser | Missing `frame-ancestors 'self' https://app.ngfsystems.com https://*.vercel.app` in CSP header |
 | Portal editor "site_url not NGF" | Either `NEXT_PUBLIC_SITE_URL` doesn't match `client_configs.site_url`, or your site's HTML doesn't include the `ngf-public-api` meta tag (verify by viewing source) |
-| Bridge version mismatch | The bridge file in this repo is older than the editor expects. Copy from NorthCove/WrenchTime current main |
+| Bridge version mismatch | The bridge file in this repo is older than the editor expects. Re-copy `NgfEditBridge.tsx` from `ngf-client-starter` (the canonical source) |
 | Newly-added card looks like a duplicate of the last card | Bridge clones the last child as a template, then resets text to placeholders + image to a grey "Click to set image" SVG. If your site uses non-standard markup the reset may be incomplete; check the bridge's `addGroupItem` handler |
-| Custom domain renders only hardcoded defaults | `NEXT_PUBLIC_SITE_URL` Vercel env var doesn't match `client_configs.site_url` exactly (case, www, trailing slash matter) |
+| Custom domain renders only hardcoded defaults | `NEXT_PUBLIC_SITE_URL` Vercel env var doesn't match `client_configs.site_url` exactly (case, www, trailing slash matter). When changing a domain, **both** must change together — see "Site lifecycle" |
+| Client's edits "disappeared" after the real domain was set | Almost always the URL pair is out of sync (fix #1 above), not lost data. Content is preserved across `site_url` changes and a restore-point snapshot is in version history. Recovery steps under "Site lifecycle — recovery." Do NOT re-type from scratch — restore first |
 | `<select><option>` editing | Not supported by the bridge — native browser UI. Use `data-ngf-field` for the label only |
 | Hydration mismatch with `data-ngf-edit` attribute | The bridge sets `data-ngf-edit` on `<html>` only when the parent is the portal iframe. Don't set it server-side |
 | Clerk v7 JWT format broken | Pin `@clerk/nextjs@6` |
@@ -1456,6 +1530,106 @@ NGF main app additionally:
 | `/api/revalidate` returns 401 when the portal publishes | `WEBSITE_REVALIDATION_SECRET` on the client site doesn't match the NGF main app's value (or isn't set). Set both to the same secret and redeploy the client site |
 | Neon CU-hours climbing fast for no obvious reason | A client site is still on `cache: 'no-store'` in `getNgfContent()` — every visitor pageview hits Neon. Migrate it to the tagged/revalidating fetch (see "Content caching & revalidation") |
 | Vercel rebuilds on every commit including README/docs edits | Missing or misconfigured `vercel.json` `ignoreCommand`. Add the docs-skip script (see "Vercel build cost discipline"). Remember the inverted convention: exit 0 skips, exit 1 builds |
+
+---
+
+## Adding or integrating a feature — the playbook
+
+Read this section when a client asks for something new ("can my site have a booking form / a gallery / a blog / a login area / a map / reviews…") or when any feature or integration must be added to an existing NGF site. It is the decision layer: it tells you *which* pattern to reach for and *what "done" looks like*, then points at the detailed how-to. **Future AI sessions: start here for additions.** Build features by following this playbook — never by inventing a parallel system.
+
+**Golden rule.** Every addition must (a) stay editable from the portal, (b) render correctly before any content is ever published (hardcoded fallbacks), (c) stay inside the security and caching standards, and (d) be tested locally before it ships. If an addition breaks any of those four, it is not done.
+
+### The app ↔ site compatibility contract (non-negotiable)
+
+Every client site is one half of a two-part system; the NGF app (portal editor, schema scraper, content API, edit bridge) is the other half. An addition that works in isolation but violates this contract will break the portal — the client loses the ability to edit, the editor shows duplicates or empty boxes, or content stops publishing. **Anything added to a client site MUST keep all of the following true, and anything added to the NGF app MUST keep supporting them:**
+
+**Every client-site addition must:**
+- Expose editable content as **flat dot-notation** the scraper can read — all four `data-ngf-*` attributes present, **one canonical path per value**, **one `data-ngf-group` declaration** per repeatable set, and group paths **exactly two segments deep** (`section.array`). The editor's add/remove/reorder only handle two-segment groups; deeper nesting silently breaks the controls.
+- Use **plain `<img>`** for image fields — never `next/image` with `fill`, which wraps the element the bridge needs to reach.
+- Read content via `getNgfContent()` with `||` fallbacks and the `next: { revalidate: 60 }` cache — **never `cache: 'no-store'`** — and ship the `/api/revalidate` route (calling `revalidatePath('/', 'layout')`) so publishes propagate.
+- Keep `NEXT_PUBLIC_SITE_URL` exactly matching `client_configs.site_url`, mount the verbatim `NgfEditBridge`, and keep the CSP `frame-ancestors` allowance for `app.ngfsystems.com` so the editor iframe loads.
+- Be confirmed live in the portal editor (the "verify in editor" step). If a new field doesn't appear there, it is not compatible yet — it is not done.
+
+**When an addition needs capability the portal doesn't have yet** — a new field *type* beyond `text` / `textarea` / `color` / `image`, a content shape the scraper can't express, a new editable surface (e.g. blog posts), or anything the editor would need new UI for — **that is a coordinated NGF-app change, not a client-site-only change.** Update the NGF app (scraper, bridge contract, editor, content API as needed) **and** this standards file together, then build the client-site feature against the now-supported capability. Never ship a client-site feature that assumes portal support that doesn't exist: it will look fine on the live site and be uneditable in the panel.
+
+**On the NGF-app side:** any change to the editor, scraper, bridge, content API, or publish flow must stay backward-compatible with every already-deployed client site — or every affected site must be migrated in the same release. The app and the standards move together: if you change the contract in the code, change it in this doc, and vice versa.
+
+### Building a new structured collection (blog, products, bookings, events…)
+
+Most "features" are page content — fixed fields you annotate with `data-ngf-*` and read with `|| fallback` (Step 0 below makes the call). But a **structured collection** — a variable-length list the client adds/removes/reorders (blog posts, products, bookings, calendar events, team members) that the current editor can't express — is a **coordinated NGF-app change**, per the contract above. When you build one, it MUST satisfy this contract so it inherits the editor, cache, versioning, and SEO instead of becoming a one-off:
+
+1. **Data, keyed by `client_id`.** A new model in the NGF Prisma schema (or the client's own external DB for client-owned operational data like bookings). Mirror the `website_content` pattern: a published state, an optional draft, and a **version snapshot on publish** (like `website_content_versions`) so edits are revertible. Multi-tenant queries always filter by `client_id` at the ORM level.
+2. **A feature flag in `client_configs`.** Gate the whole surface on a boolean (`feature_blog`, `feature_products`, `feature_booking`, `feature_gallery` exist; add new ones as needed). The portal renders the surface only when the flag is on; the public API returns empty when off.
+3. **A public read API under `/api/public/*`.** Same domain resolution as `getNgfContent()` (match by normalized `site_url`), full CORS, **no auth**, and **return `{}` / `[]` when empty** so the site falls through to its hardcoded defaults instead of 404ing. List + single-item endpoints (e.g. `/api/public/articles?domain=…` and `…/articles/<slug>`).
+4. **Client-site rendering with the shared cache.** Fetch with the same ISR cache as content — `fetch(url, { next: { revalidate: 60, tags: ['ngf-content'] } })` — busted by the same `/api/revalidate` on publish. Never `cache: 'no-store'`; always `||` fallbacks. Emit the right JSON-LD (`Article`/`BreadcrumbList` for posts, `Product`/`Offer` for shop, `Event` for calendar) + per-page `metadata`.
+5. **An editor surface that reuses the publish model.** Edits flow **draft → publish → push → revalidate**, exactly like the website editor, obeying the security invariants (identity from session, scope to `client.id`, role re-checked, never trust a `client_id` from input).
+6. **Sitemap wiring.** Dynamic URLs (blog slugs, product pages) must be emitted by `app/sitemap.ts` or they're invisible to Google.
+7. **The full security baseline applies** — input validation, prototype-pollution stripping, SSRF guards, webhook verification, secrets never `NEXT_PUBLIC_`, and Image-upload safety for any upload.
+
+The payoff: the feature inherits the draft/publish/revert UX, the 60s ISR + instant cache-bust, the domain-resolution plumbing, version history, and the SEO surface — instead of a one-off that "works on one site but not another." Planned instances (blog, auto-generated structured data) live in the Roadmap below.
+
+### Step 0 — Pick the NGF pattern before writing any code
+
+Map the request to a known pattern. Almost every ask is one of these:
+
+| Client wants… | NGF approach | Detailed section |
+|---|---|---|
+| To edit some text/image themselves | Editable field — `data-ngf-*` annotation + `||` fallback | "Self-describing markup" |
+| A list they can add/remove/reorder (services, team, projects) | Repeatable group — `data-ngf-group` | "Repeatable groups" |
+| A photo gallery / many images | Repeatable group + `react-photo-view` lightbox | "Large galleries", "Universal interaction patterns" |
+| A contact / inquiry form | Server route + Resend + Zod validation | Recipes below |
+| Online booking / scheduling / quote requests | Its own DB table + tokenized public links | Recipes below |
+| A blog / news / articles | Planned feature — not yet built; follow the agreed architecture | "Roadmap" |
+| A login area (customer or staff) | Clerk v6 | "Auth" + recipe below |
+| A map, calendar, chat widget, embed, any third-party script | Third-party integration (CSP + env) | Recipes below |
+| A new page | New route + `metadata` + sitemap entry | Recipes below |
+| Reviews/testimonials shown + in search results | Repeatable group + `AggregateRating`/`Review` JSON-LD (only if real) | SEO § "Expanding structured data" |
+
+If the ask fits no pattern, stop and design it against the four principles (editable, fallback, secure, cached) before coding — do not improvise a one-off.
+
+### Step 1 — The universal build sequence (any addition, in this order)
+
+1. **Check it doesn't already exist.** Search the repo for the component/route/field first — never duplicate.
+2. **Data first.** Needs stored data? Model it (Drizzle on client sites, Prisma on the main app), scoped by `client_id`, and generate the migration. Just editable content? Decide the `data-ngf-field` paths — one canonical path per piece of data, never duplicated.
+3. **Server route second** (if needed). Validate every input with Zod. Follow the security baseline: identity from session, scope every query to `client.id`, re-check `role` inside `/api/*` handlers. If it accepts uploads, follow Image-upload safety.
+4. **UI last.** Render with hardcoded fallbacks (`content['key'] || 'default'` — always `||`, never `??`). Annotate every new editable element with all four `data-ngf-*` attributes. Mobile-first, Tailwind only, server components by default.
+5. **SEO.** New page → add it to `app/sitemap.ts` and give it `metadata`. New business info → update the structured data.
+6. **Security / CSP.** New third-party origin → add it to the CSP (`script-src` / `connect-src` / `frame-src` as appropriate). New secret → server-only env var, never `NEXT_PUBLIC_`.
+7. **Test locally** (`npm run dev`), then `npx tsc --noEmit` and `npm run build`. Exercise the unhappy paths, not just the happy one.
+8. **Verify in the editor** — open the portal, confirm the new editable fields show up in the sidebar with real preview text.
+
+### Step 2 — Recipes for the common asks
+
+**Editable content region.** Annotate the element with all four attributes; read `content['section.field'] || 'fallback'`. One canonical path per piece of data, reused everywhere it appears. See "Self-describing markup."
+
+**Repeatable list / gallery.** `data-ngf-group="section.items"` on the container — exactly two path segments, declared once (not on both responsive layouts). Declare `data-ngf-item-fields`, render with indexed paths, read with `getItems(content, 'section.items')`. Wrap image sets in `<PhotoProvider>`. See "Repeatable groups" and "Large galleries."
+
+**Contact / inquiry form.** Client component for the form; a server route (or server action) that (1) validates with Zod, (2) sends via Resend, (3) returns a generic error on failure (no internals leaked). The Resend key is server-only. Add a honeypot or basic rate-limit if spam is a risk. Labels/headings can be `data-ngf-*` editable; native `<select>` *options* are not bridge-editable (see Known Issues).
+
+**Features that need their own data (booking, service requests, quotes).** Give the client site its **own** Neon DB via Drizzle, tables scoped by `client_id`. For customer-facing flows where the customer has no account, use **tokenized public links** (random token + TTL, validated server-side) and whitelist those routes in middleware. Schema changes live in the **client site repo**, not the main app; record any migration you can't verify live in that repo's Known Gaps.
+
+**Auth area (customer or staff login).** Clerk v6 (`@clerk/nextjs@6` — never `@latest`). Customize the session token for roles, let middleware handle all auth (never in layout components), whitelist public/tokenized routes. Remember the Clerk custom-domain CSP carve-out on production keys. See "Auth."
+
+**Third-party integration (maps, embeds, scripts, external APIs).** Three things, every time: (1) add the origin to the CSP — `script-src` for scripts, `connect-src` for fetch/XHR, `frame-src` for iframes/embeds; (2) keys go in server-only env vars unless the provider's key is explicitly public (then `NEXT_PUBLIC_` is fine, e.g. a GA measurement ID); (3) load scripts with `next/script` and an appropriate `strategy`. Re-run the security checklist afterward.
+
+**New page.** New route folder + `page.tsx` with its own `metadata`; add the URL to `app/sitemap.ts`; link it in nav (annotate the label if it should be editable); confirm 375 / 768 / 1280.
+
+**Blog / articles.** Not yet built — a planned standard. Do not hand-roll a one-off; follow "Roadmap → Blog / articles" and the structured-collection contract above so every site's blog lands the same way.
+
+### Step 3 — Definition of done (gate every addition against this)
+
+An addition is done only when **all** of these are true:
+
+- [ ] Editable pieces are annotated (all four `data-ngf-*` attrs) and appear in the portal editor
+- [ ] Every dynamic value has a hardcoded `||` fallback; the site renders correctly with zero published content
+- [ ] Inputs are validated server-side (Zod); routes follow the security invariants; uploads follow Image-upload safety
+- [ ] Any new third-party origin is in the CSP; any new secret is server-only (no `NEXT_PUBLIC_`)
+- [ ] New pages are in `app/sitemap.ts` with `metadata`; structured data updated if business info changed
+- [ ] Works at 375 / 768 / 1280; Tailwind only; server components by default
+- [ ] `npx tsc --noEmit` and `npm run build` pass; unhappy paths tested locally
+- [ ] Verified in the portal editor; content caching left as `next: { revalidate: 60 }` (never `no-store`)
+
+If you cannot check every box, state which are unchecked rather than calling it done.
 
 ---
 
@@ -1481,15 +1655,22 @@ Items here are **agreed direction but not yet implemented.** Don't treat them as
 
 A `<StructuredData client={config} />` component that emits complete `LocalBusiness` + `Service` + `AggregateRating` JSON-LD from the client's NGF config, replacing hand-authored markup and eliminating NAP drift. Detailed under SEO & analytics § "4b. Expanding structured data."
 
+### Package the editor integration as `@ngf/editor-bridge`
+
+**Goal:** eliminate the copy-verbatim fragility for `NgfEditBridge.tsx` + `lib/ngf.ts`. Today every site hand-copies these from `ngf-client-starter`, so a contract change means re-copying into N repos, and stale copies silently break edit-mode behaviors.
+
+**Intended shape:** publish the bridge, `lib/ngf.ts`, and the CSP/revalidate boilerplate as a versioned package (private npm registry or a git-tagged dependency). Sites `npm install @ngf/editor-bridge@^x` and import — pinning a version instead of copying source. The bridge keeps a `BRIDGE_VERSION` constant the editor can read so the portal can warn when a site is on an incompatible version. Until this ships, `ngf-client-starter` is the single canonical copy-from source.
+
 ---
 
-## Reference implementations
+## Reference implementation
 
-When in doubt, copy a pattern from one of these:
+There is exactly one canonical reference, kept current as the editor evolves:
 
-- **[`NorthCoveBuilders-Mockup`](https://github.com/Nick-NGFsystems/NorthCoveBuilders-Mockup)** — fully annotated marketing site. No auth, no DB beyond contact form. Best reference for pure content-driven NGF integration. Uses Next.js 16 + React 19 + Drizzle.
-- **[`WrenchTime-Cycles`](https://github.com/Nick-NGFsystems/WrenchTime-Cycles)** — service-shop site with its own external Neon DB for `ServiceRequest`, Clerk for shop-owner auth, tokenized public booking links. Best reference for sites that need their own data + customer-facing token flows. See [`wrenchtime-cycles/CLAUDE.md`](https://github.com/Nick-NGFsystems/WrenchTime-Cycles/blob/main/wrenchtime-cycles/CLAUDE.md) for project-specific details.
-- **[`NGF-Systems-app`](https://github.com/Nick-NGFsystems/NGF-Systems-app)** — the admin portal itself. Read its [`CLAUDE.md`](https://github.com/Nick-NGFsystems/NGF-Systems-app/blob/main/CLAUDE.md) when integrating new editor features (it has the full bridge + scraper architecture, security invariants, version history, etc.).
+- **[`ngf-client-starter`](https://github.com/Nick-NGFsystems/ngf-client-starter)** — the canonical client-site reference. Holds the authoritative `NgfEditBridge.tsx`, `lib/ngf.ts`, CSP/`next.config`, `app/api/revalidate/route.ts`, `vercel.json`, and fully-annotated example sections covering every field type and pattern in this doc. **Copy integration files from here, never from a live client site** (client copies drift). When the editor contract changes, this is the one repo that gets updated first.
+- **[`NGF-Systems-app`](https://github.com/Nick-NGFsystems/NGF-Systems-app)** — the admin portal itself. Read its [`CLAUDE.md`](https://github.com/Nick-NGFsystems/NGF-Systems-app/blob/main/CLAUDE.md) when integrating new editor features (full bridge + scraper architecture, security invariants, version history).
+
+Individual client sites are **not** reference material — anything project-specific lives in that project's own `CLAUDE.md`, never in this universal standard.
 
 ---
 
