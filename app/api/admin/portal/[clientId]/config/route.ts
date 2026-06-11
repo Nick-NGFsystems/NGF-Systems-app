@@ -90,9 +90,8 @@ export async function PATCH(request: Request, context: RouteContext) {
       body.site_url !== undefined ? (body.site_url?.trim() || null) : undefined
 
     // If site_url is being set to a non-null value, verify it's NGF-compatible.
-    // When the URL is CHANGING for this client, also snapshot and clear the
-    // existing content — otherwise editing a new site under the same client row
-    // silently bleeds fields from the previous site into the new one.
+    // When the URL is CHANGING for this client, capture a restore-point snapshot
+    // of the current content — but NEVER auto-clear it (see the block below).
     if (newSiteUrl !== undefined) {
       const existing = await db.clientConfig.findUnique({
         where: { client_id: clientId },
@@ -112,10 +111,18 @@ export async function PATCH(request: Request, context: RouteContext) {
         }
       }
 
-      // On any site_url change (including to null), preserve the outgoing
-      // site's content in version history and then clear the live rows so
-      // the next site starts fresh. Prevents cross-site field pollution when
-      // one client row rotates through multiple domains.
+      // On a site_url change, capture a restore-point snapshot of the current
+      // content into version history — but DO NOT clear the live content.
+      //
+      // Promoting a mockup URL to its real production domain is the common case,
+      // and it's the SAME site. The previous behavior cleared content/draft on
+      // ANY url change, which silently wiped a client's saved edits the moment
+      // their real domain was set (a production incident). Stray keys left over
+      // from a genuinely different site are harmless: the live site reads only
+      // the keys it knows via `||` fallbacks, and the editor re-scrapes the new
+      // site's schema on next load. To deliberately wipe content for a true
+      // fresh start (real cross-contamination), use the explicit
+      // "Reset Website Content" admin action instead.
       if (urlIsChanging) {
         const wc = await db.websiteContent.findUnique({ where: { client_id: clientId } })
         if (wc && (wc.content || wc.draft_content)) {
@@ -124,16 +131,14 @@ export async function PATCH(request: Request, context: RouteContext) {
               data: {
                 client_id: clientId,
                 content:   (wc.draft_content ?? wc.content ?? {}) as object,
-                note:      `Snapshot from ${existing?.site_url ?? '(no site)'} before switching to ${newSiteUrl ?? '(no site)'}`,
+                note:      `Restore point — domain changed from ${existing?.site_url ?? '(no site)'} to ${newSiteUrl ?? '(no site)'}`,
               },
             })
           } catch (snapErr) {
-            console.error('[config PATCH] snapshot-on-url-change failed (non-fatal)', snapErr)
+            console.error('[config PATCH] restore-point snapshot on url change failed (non-fatal)', snapErr)
           }
-          await db.websiteContent.update({
-            where: { client_id: clientId },
-            data:  { content: {}, draft_content: null, schema_json: null },
-          })
+          // Intentionally NOT clearing content / draft_content / schema_json —
+          // see the comment above. Clearing is an explicit, separate action.
         }
       }
     }
