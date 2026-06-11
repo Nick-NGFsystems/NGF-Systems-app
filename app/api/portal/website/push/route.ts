@@ -3,8 +3,15 @@ import { auth } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 
 export async function POST() {
-  const { userId } = await auth()
+  const { userId, sessionClaims } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // A LEAD-role user could own a client row; only signed-up clients (or admins)
+  // may publish. Mirrors the role gate on /versions and /reset.
+  const role = (sessionClaims?.metadata as { role?: string } | undefined)?.role
+  if (role !== 'client' && role !== 'admin') {
+    return NextResponse.json({ error: 'Unauthorized role' }, { status: 401 })
+  }
 
   try {
     const client = await db.client.findUnique({

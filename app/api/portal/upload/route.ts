@@ -81,7 +81,8 @@ export async function POST(request: Request) {
     // Optimizable raster (JPEG, PNG, WebP): auto-rotate by EXIF, resize so
     // neither side exceeds MAX_DIMENSION_PX, re-encode as WebP at quality 85.
     // Strips embedded metadata (smaller files, privacy win).
-    // SVG and GIF pass through unchanged.
+    // SVG is also rasterized to WebP here (see the M1 note above — neutralizes
+    // any embedded <script>). Only GIF passes through unchanged.
 
     let uploadBuffer: Buffer | File = file
     let uploadContentType = file.type

@@ -137,7 +137,16 @@ export default function ConfigToggles({ configId, initialValues }: ConfigToggles
       </div>
 
       <div>
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-400">Features</h3>
+        <div className="mb-3 flex items-center gap-2">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-400">Features</h3>
+          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+            Not yet implemented
+          </span>
+        </div>
+        <p className="mb-3 text-xs text-gray-500">
+          These feature flags aren&apos;t wired to client sites yet — toggling them has no effect on the live
+          site or portal. Kept here as roadmap placeholders.
+        </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {FEATURE_TOGGLES.map(({ field, label }) => (
             <Toggle

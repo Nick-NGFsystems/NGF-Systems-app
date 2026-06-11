@@ -2,9 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { db } from '@/lib/db'
 
+/** Only signed-up clients (or admins) may use the portal — never a LEAD-role
+ *  user who happens to own a client row. Mirrors /website/reset + /versions. */
+function isAllowedRole(role: unknown): boolean {
+  return role === 'client' || role === 'admin'
+}
+
 export async function GET() {
-  const { userId } = await auth()
+  const { userId, sessionClaims } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!isAllowedRole((sessionClaims?.metadata as { role?: string } | undefined)?.role)) {
+    return NextResponse.json({ error: 'Unauthorized role' }, { status: 401 })
+  }
 
   try {
     const client = await db.client.findUnique({ where: { clerk_user_id: userId } })
@@ -23,8 +32,11 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const { userId } = await auth()
+  const { userId, sessionClaims } = await auth()
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!isAllowedRole((sessionClaims?.metadata as { role?: string } | undefined)?.role)) {
+    return NextResponse.json({ error: 'Unauthorized role' }, { status: 401 })
+  }
 
   try {
     const client = await db.client.findUnique({ where: { clerk_user_id: userId } })

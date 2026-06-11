@@ -20,7 +20,10 @@ export default function PortalNavbar({ config }: PortalNavbarProps) {
   const links: PortalNavbarLink[] = [
     { label: 'Dashboard', href: '/portal/portal-dashboard' },
     ...(config.page_website ? [
-      { label: 'Website Editor', href: '/portal/website' },
+      // The Website Editor scrapes the live site, so it only works once a
+      // site_url is set. Without one it's a "coming soon" dead end — hide it
+      // until NGF wires up the client's site.
+      ...(config.site_url ? [{ label: 'Website Editor', href: '/portal/website' }] : []),
       { label: 'My Website', href: '/portal/portal-website' },
     ] : []),
     ...(config.page_content ? [{ label: 'Content', href: '/portal/portal-content' }] : []),

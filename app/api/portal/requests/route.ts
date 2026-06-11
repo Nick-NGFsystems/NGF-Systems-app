@@ -14,9 +14,15 @@ const validPriority = new Set(['LOW', 'MEDIUM', 'URGENT'])
 
 export async function POST(request: Request) {
   try {
-    const { userId } = await auth()
+    const { userId, sessionClaims } = await auth()
     if (!userId) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Only signed-up clients (or admins) may submit — not a LEAD-role user.
+    const role = (sessionClaims?.metadata as { role?: string } | undefined)?.role
+    if (role !== 'client' && role !== 'admin') {
+      return NextResponse.json({ success: false, error: 'Unauthorized role' }, { status: 401 })
     }
 
     let client = await db.client.findUnique({ where: { clerk_user_id: userId } })
