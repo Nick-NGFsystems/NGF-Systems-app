@@ -987,6 +987,32 @@ function EditPopover({
               className="w-full border border-gray-200 rounded-xl px-4 py-3 text-[15px] leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
               placeholder="Type here…"
             />
+          ) : field.fieldType === 'toggle' ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                <span className="text-[15px] font-medium text-gray-900">Show this section</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={value !== 'false'}
+                  onClick={() => handleChange(value !== 'false' ? 'false' : '')}
+                  className={`relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    value !== 'false' ? 'bg-blue-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${
+                      value !== 'false' ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+              <p className="text-sm leading-relaxed text-gray-500">
+                {value !== 'false'
+                  ? 'This section is visible on your live website.'
+                  : 'This section is hidden from visitors on your live website. It still appears here in the editor so you can switch it back on anytime.'}
+              </p>
+            </div>
           ) : (
             <input
               ref={inputRef as React.Ref<HTMLInputElement>}
@@ -1767,7 +1793,14 @@ export default function WebsiteEditorPage() {
         }
 
         const imageMeta = fieldType === 'image' ? lookupImageMeta(section, field) : {}
-        setClickField({ section, field, value: currentValue, label: humanize(fieldPart), fieldType, elementRect, ...imageMeta })
+        // For toggles the DOM text is meaningless — the real on/off state lives
+        // in content. preEditValue (captured just above) holds it: '' or 'true'
+        // => shown, 'false' => hidden.
+        const pv = preEditValue.current
+        const initialValue = fieldType === 'toggle'
+          ? (pv === false || pv === 'false' ? 'false' : '')
+          : currentValue
+        setClickField({ section, field, value: initialValue, label: humanize(fieldPart), fieldType, elementRect, ...imageMeta })
         setPopoverPos(pos)
       }
     }
@@ -1935,7 +1968,9 @@ export default function WebsiteEditorPage() {
                             <p className="text-[11px] text-amber-700/70 px-1.5 py-1">No field-level diffs — refresh.</p>
                           ) : diffs.map(d => {
                             const isImg = d.type === 'image'
-                            const pretty = (v: string) => v === '' ? '(empty)' : v
+                            const pretty = (v: string) =>
+                              d.type === 'toggle' ? (v === 'false' ? 'Hidden' : 'Shown')
+                              : v === '' ? '(empty)' : v
                             return (
                               <div key={d.path} className="rounded border border-amber-100 bg-white p-1.5">
                                 <div className="flex items-center justify-between gap-1 mb-1">
