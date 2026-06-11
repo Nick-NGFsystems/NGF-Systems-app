@@ -1,5 +1,6 @@
 'use client'
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { materializeGroups, reindexSiteValuesForGroup } from '@/lib/editor-content'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1043,6 +1044,16 @@ export default function WebsiteEditorPage() {
   // previews so row labels show real review quotes / project names instead
   // of empty slots. Never written to the DB.
   const [siteValues,       setSiteValues]        = useState<Record<string, string>>({})
+  // Mirror of siteValues read by materialize() in the debounced save path. A
+  // plain closure over siteValues state would go stale: a remove/reorder updates
+  // siteValues, but the already-scheduled (800 ms) save captured the old map.
+  // The ref is updated synchronously on every change so the save always
+  // backfills from the correctly-indexed values. (UI still reads the state.)
+  const siteValuesRef = useRef<Record<string, string>>({})
+  const syncSiteValues = useCallback((next: Record<string, string>) => {
+    siteValuesRef.current = next
+    setSiteValues(next)
+  }, [])
   // Sidebar width — drag handle adjusts in real time, persisted to
   // localStorage so the preference carries across sessions.
   const [sidebarWidth,     setSidebarWidth]      = useState<number>(() => {
@@ -1129,6 +1140,18 @@ export default function WebsiteEditorPage() {
     return out
   }, [])
 
+  // P1 fix: before persisting, materialize every edited repeatable group into
+  // its COMPLETE set — backfilling untouched items from the live scraped values
+  // — so a one-item edit never publishes a one-item array (which collapses the
+  // site's `length > 0 ? items : DEFAULTS` fallback). See lib/editor-content.ts.
+  // Applied only to the persisted body; in-memory `content` stays minimal so the
+  // pending-changes diff and revert logic are unaffected.
+  const materialize = useCallback(
+    (c: ContentBlock): ContentBlock =>
+      schema ? (materializeGroups(c, schema, baseContent, siteValuesRef.current) as ContentBlock) : c,
+    [schema, baseContent],
+  )
+
   const pushToPreview = useCallback((c: ContentBlock) => {
     if (previewTimer.current) clearTimeout(previewTimer.current)
     previewTimer.current = setTimeout(() => {
@@ -1146,8 +1169,9 @@ export default function WebsiteEditorPage() {
       try {
         // Strip empty strings before persisting — keeps the DB from accumulating
         // '' entries from applySchemaDefaults. Client sites use `||` fallbacks,
-        // so omitted keys fall through to hardcoded defaults.
-        const filtered = stripEmpty(c)
+        // so omitted keys fall through to hardcoded defaults. materialize() first
+        // completes any edited repeatable group so it's never published partial.
+        const filtered = stripEmpty(materialize(c))
         const res = await fetch('/api/portal/website', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1157,7 +1181,7 @@ export default function WebsiteEditorPage() {
         setTimeout(() => setSaveStatus('idle'), 2000)
       } catch { setSaveStatus('error'); setTimeout(() => setSaveStatus('idle'), 2000) }
     }, 800)
-  }, [stripEmpty])
+  }, [stripEmpty, materialize])
 
   const updateField = useCallback((sectionKey: string, fieldPath: string, value: string | boolean) => {
     setContent(prev => {
@@ -1192,6 +1216,10 @@ export default function WebsiteEditorPage() {
   // goes false and a refresh doesn't bring "phantom" pending changes back.
   const flushSaveOrClear = useCallback((next: ContentBlock) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    // isClean compares the UNmaterialized strip so reverting to baseline is
+    // detected correctly (materialization is neutral here — it would backfill
+    // both sides identically). The POST body, however, is materialized so a
+    // still-edited group is persisted complete.
     const filtered     = stripEmpty(next)
     const baseFiltered = stripEmpty(baseContent)
     const isClean      = JSON.stringify(filtered) === JSON.stringify(baseFiltered)
@@ -1202,7 +1230,7 @@ export default function WebsiteEditorPage() {
       : fetch('/api/portal/website', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ content: filtered }),
+          body:    JSON.stringify({ content: stripEmpty(materialize(next)) }),
         })
 
     req.then(res => {
@@ -1212,7 +1240,7 @@ export default function WebsiteEditorPage() {
       if (isClean) setExpandedPending({})
     }).catch(() => setSaveStatus('error'))
       .finally(() => setTimeout(() => setSaveStatus('idle'), 1500))
-  }, [stripEmpty, baseContent])
+  }, [stripEmpty, baseContent, materialize])
 
   const revertSection = useCallback((sectionKey: string) => {
     setContent(prev => {
@@ -1276,10 +1304,13 @@ export default function WebsiteEditorPage() {
         { type: 'moveGroupItem', group: `${sectionKey}.${arrayKey}`, from, to },
         '*'
       )
+      // Reorder siteValues to match so materialize() backfills each item with
+      // the value that now belongs at its new index.
+      syncSiteValues(reindexSiteValuesForGroup(siteValuesRef.current, `${sectionKey}.${arrayKey}.`, { kind: 'move', from, to }))
       scheduleSave(next)
       return next
     })
-  }, [scheduleSave])
+  }, [scheduleSave, syncSiteValues])
 
   // Remove an item at index from a repeatable group: updates state, tells the
   // bridge to remove the DOM card and shift subsequent indices, schedules save.
@@ -1298,10 +1329,13 @@ export default function WebsiteEditorPage() {
         { type: 'removeGroupItem', group: `${sectionKey}.${arrayKey}`, index },
         '*'
       )
+      // Keep siteValues positionally in sync so materialize() backfills the
+      // right value at each shifted index (never resurrects the removed item).
+      syncSiteValues(reindexSiteValuesForGroup(siteValuesRef.current, `${sectionKey}.${arrayKey}.`, { kind: 'remove', index }))
       scheduleSave(next)
       return next
     })
-  }, [schema, scheduleSave])
+  }, [schema, scheduleSave, syncSiteValues])
 
   // Helper: list all (section, array) repeatable pairs from the schema so the
   // sidebar can render one control panel per group.
@@ -1601,11 +1635,12 @@ export default function WebsiteEditorPage() {
       const saveRes = await fetch('/api/portal/website', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Publish must persist the SAME empty-stripped payload that scheduleSave
-        // uses. Otherwise applySchemaDefaults' '' placeholders for every untouched
-        // field get force-saved into the draft, promoted to published content by
-        // /push, and then leak through the public content API as empty-string noise.
-        body: JSON.stringify({ content: stripEmpty(content) }),
+        // Publish must persist the SAME materialized + empty-stripped payload that
+        // scheduleSave uses. materialize() completes any edited repeatable group
+        // (untouched items backfilled from live values) so the published list is
+        // never partial; stripEmpty then drops the '' placeholders so untouched
+        // fields fall through to the site's hardcoded defaults.
+        body: JSON.stringify({ content: stripEmpty(materialize(content)) }),
       })
       if (!saveRes.ok) { setPushStatus('error'); setTimeout(() => setPushStatus('idle'), 3000); return }
 
@@ -1619,7 +1654,7 @@ export default function WebsiteEditorPage() {
       } else { setPushStatus('error') }
       setTimeout(() => setPushStatus('idle'), 3000)
     } catch { setPushStatus('error'); setTimeout(() => setPushStatus('idle'), 3000) }
-  }, [content, reloadPreview, stripEmpty])
+  }, [content, reloadPreview, stripEmpty, materialize])
 
   // Load on mount
   useEffect(() => {
@@ -1635,7 +1670,7 @@ export default function WebsiteEditorPage() {
         pushToPreview(data.content as ContentBlock)
       }
       setPublishedContent((data?.published_content ?? {}) as ContentBlock)
-      if (data?.site_values)  setSiteValues(data.site_values as Record<string, string>)
+      if (data?.site_values)  syncSiteValues(data.site_values as Record<string, string>)
       if (data?.has_draft)    setHasDraft(true)
       if (data?.site_url)     setSiteUrl(data.site_url as string)
       if (data?.published_at) setPublishedAt(data.published_at as string)

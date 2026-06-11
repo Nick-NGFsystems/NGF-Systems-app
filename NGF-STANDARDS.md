@@ -485,6 +485,15 @@ Put `data-ngf-group` on the container, declare each item's sub-fields in `data-n
 </div>
 ```
 
+**The published list is always complete (authoritative).** When a client edits *any* item in a group, the editor publishes the **entire materialized list** — every untouched item is backfilled from its live rendered value before publish, so the published array always contains the full set, never just the edited item. Sites may therefore treat a non-empty published array as the complete, authoritative list and render it directly:
+
+```tsx
+const items = getItems(content, 'services.items')
+const display = items.length > 0 ? items : HARDCODED_DEFAULTS   // correct — items is whole
+```
+
+Do **not** try to merge a published array back over the defaults per-index (`content[i] || DEFAULTS[i]`) — that would resurrect items the client deleted. The all-or-nothing `length > 0 ? items : DEFAULTS` pattern is correct precisely because the editor never publishes a partial group.
+
 #### Field type reference
 
 | `data-ngf-type` | Editor input | Bridge writes to |
