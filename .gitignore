@@ -14,7 +14,10 @@ NGFsystems-PL-Workbook-2026.xlsx
 /*.xlsx
 /*.docx
 
-# Session scratch docs — temporary handoff/plan files kept on disk only.
+# Session scratch docs — temporary handoff/plan/spec files kept on disk only.
 # Ignored so a blanket `git add` can never commit them to main.
 /PORTAL-AUDIT-HANDOFF.md
 /IMAGE-PIPELINE-HARDENING.md
+/ADMIN-CLIENT-HUB-SPEC.md
+/EDITOR-V1-SPEC.md
+/EDITOR-QA-MATRIX.md
